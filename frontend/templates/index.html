@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Family Finance Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1>💰 Smart Family Finance Tracker</h1>
+            </div>
+        </header>
+
+        <div id="error-box" class="result-box error hidden"></div>
+
+        <!-- Tab Navigation -->
+        <div class="tab-navigation">
+            <button class="tab-button active" data-tab="dashboard">📊 Dashboard</button>
+            <button class="tab-button" data-tab="add">➕ Add Expense</button>
+            <button class="tab-button" data-tab="predict">🔮 Predict & Alert</button>
+            <button class="tab-button" data-tab="compare">⚖️ Compare Months</button>
+        </div>
+
+        <!-- TAB 1: DASHBOARD -->
+        <div class="tab-content active" id="dashboard">
+            <div class="tab-grid">
+                <!-- Metrics Cards -->
+                <div class="metrics-row">
+                    <div class="metric-card">
+                        <div class="metric-label">This Month Total</div>
+                        <div class="metric-value" id="this-month">₹0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Last Month Total</div>
+                        <div class="metric-value" id="last-month">₹0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Month-over-Month Change</div>
+                        <div class="metric-value" id="mom-change">₹0</div>
+                        <div class="metric-percent" id="mom-percent">(0%)</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Total Expense Count</div>
+                        <div class="metric-value" id="expense-count">0</div>
+                    </div>
+                </div>
+
+                <!-- Charts Row -->
+                <div class="charts-row">
+                    <div class="chart-container">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Expenses List -->
+                <div class="expenses-section">
+                    <h2>Recent Expenses</h2>
+                    <div class="expenses-list" id="expenses-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: ADD EXPENSE -->
+        <div class="tab-content" id="add">
+            <div class="tab-grid">
+                <div class="form-section">
+                    <h2>Add New Expense</h2>
+                    
+                    <form id="expense-form">
+                        <div class="form-group">
+                            <label for="amount">Amount (₹)</label>
+                            <input type="number" id="amount" placeholder="Enter amount" step="0.01" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="date">Date</label>
+                            <input type="date" id="date" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="description">Description</label>
+                            <input type="text" id="description" placeholder="e.g., Zomato dinner delivery" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="category">Category</label>
+                            <select id="category" required>
+                                <option value="">Select Category</option>
+                                <option value="auto">🤖 Auto Predict (ML)</option>
+                                <option value="Food">🍔 Food</option>
+                                <option value="Travel">🚗 Travel</option>
+                                <option value="Bills">📄 Bills</option>
+                                <option value="Shopping">🛍️ Shopping</option>
+                                <option value="Entertainment">🎬 Entertainment</option>
+                                <option value="Other">❓ Other</option>
+                            </select>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary" id="predict-btn">🔮 Predict Category</button>
+                            <button type="submit" class="btn btn-primary">✅ Add Expense</button>
+                        </div>
+                    </form>
+
+                    <!-- Prediction Result -->
+                    <div id="prediction-result" class="prediction-result hidden">
+                        <div class="result-box success">
+                            <strong>Predicted Category:</strong>
+                            <span id="predicted-category" class="category-badge"></span>
+                            <small id="predicted-confidence">Confidence: --</small>
+                        </div>
+                    </div>
+
+                    <!-- Prediction Result -->
+                    <div id="prediction-result" class="prediction-result hidden">
+                        <div class="result-box success">
+                            <strong>Predicted Category:</strong>
+                            <span id="predicted-category" class="category-badge"></span>
+                            <small id="predicted-confidence">Confidence: --</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: PREDICT & ALERT -->
+        <div class="tab-content" id="predict">
+            <div class="tab-grid">
+                <div class="predict-section">
+                    <h2>Budget Prediction & Alerts</h2>
+                    
+                    <form id="predict-form">
+                        <p>Automatic comparison: predicted next month spending vs current month's actual. No budget input required.</p>
+                        <p>Alerts (if triggered) are sent to <strong>familyfinancialtracker@gmail.com</strong>.</p>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">🔔 Run Prediction & Send Alert (Manual)</button>
+                        </div>
+                    </form>
+
+                    <!-- Prediction Results -->
+                    <div id="predict-result" class="predict-result hidden">
+                        <div class="prediction-large">
+                            <div class="large-amount" id="predicted-next-month">₹0</div>
+                            <div class="large-tag">Linear Regression Forecast</div>
+                        </div>
+
+                        <div class="sub-cards">
+                            <div class="sub-card">
+                                <div class="sub-label">Your Budget</div>
+                                <div class="sub-value" id="result-budget">₹0</div>
+                            </div>
+                            <div class="sub-card">
+                                <div class="sub-label">Last Month</div>
+                                <div class="sub-value" id="result-last-month">₹0</div>
+                            </div>
+                            <div class="sub-card">
+                                <div class="sub-label">Change</div>
+                                <div class="sub-value" id="result-change">₹0</div>
+                                <div class="sub-percent" id="result-percent">(0%)</div>
+                            </div>
+                        </div>
+
+                        <div class="trend-info" id="trend-info">
+                            <span id="trend-text">Increasing 📈</span>
+                        </div>
+
+                        <!-- Alert Box -->
+                        <div id="alert-box" class="alert-box hidden"></div>
+
+                        <!-- Chart -->
+                        <div class="chart-container" style="margin-top: 30px;">
+                            <canvas id="predictionChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: MONTHLY COMPARE -->
+        <div class="tab-content" id="compare">
+            <div class="tab-grid">
+                <div class="compare-section">
+                    <h2>Compare Two Months</h2>
+
+                    <div class="compare-controls">
+                        <div class="form-group">
+                            <label for="month-a">Month A</label>
+                            <select id="month-a"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="month-b">Month B</label>
+                            <select id="month-b"></select>
+                        </div>
+                    </div>
+
+                    <!-- Comparison Results -->
+                    <div id="compare-result" class="compare-result hidden">
+                        <div class="comparison-cards">
+                            <div class="comparison-card">
+                                <div class="comp-label" id="comp-a-label">Month A</div>
+                                <div class="comp-value" id="comp-a-value">₹0</div>
+                            </div>
+                            <div class="comparison-card">
+                                <div class="comp-label" id="comp-b-label">Month B</div>
+                                <div class="comp-value" id="comp-b-value">₹0</div>
+                            </div>
+                        </div>
+
+                        <div class="difference-summary" id="difference-summary">
+                            Difference: ₹0 (0%)
+                        </div>
+
+                        <!-- Category Comparison Bars -->
+                        <div class="category-comparison" id="category-comparison"></div>
+
+                        <!-- Chart -->
+                        <div class="chart-container" style="margin-top: 30px;">
+                            <canvas id="compareChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
