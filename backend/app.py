@@ -454,11 +454,12 @@ if __name__ == '__main__':
     
     # Load ML model
     load_ml_model()
+    
     # Start background watcher thread for month-end automated alerts
     watcher = threading.Thread(target=_background_month_end_watcher, daemon=True)
     watcher.start()
     
     # Start Flask
-    print("\n🚀 Starting Flask server on http://127.0.0.1:5000")
+    print("\n🚀 Starting Flask server...")
     print("=" * 60)
-    app.run(debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False, use_reloader=False)
