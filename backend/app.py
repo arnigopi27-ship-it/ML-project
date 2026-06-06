@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import calendar
 import threading
 import time
-from flask import Flask, jsonify, request, render_template, send_from_directory
+from flask import Flask, jsonify, request, render_template, send_from_directory, session
 from flask_cors import CORS
 import numpy as np
 from sklearn.linear_model import LinearRegression
@@ -20,6 +20,7 @@ load_dotenv()
 
 app = Flask(__name__, template_folder='../frontend/templates', static_folder='../frontend/static')
 CORS(app)
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key')
 
 # Global variables for ML model
 vectorizer = None
@@ -76,6 +77,35 @@ def init_db():
     conn.commit()
     conn.close()
     print("✓ Database initialized (finance.db)")
+
+
+def _get_saved_profile():
+    conn = sqlite3.connect('finance.db')
+    cursor = conn.cursor()
+    def get_key(k, default=None):
+        cursor.execute('SELECT value FROM settings WHERE key = ?', (k,))
+        r = cursor.fetchone()
+        return r[0] if r else default
+
+    profile = {
+        'name': get_key('profile_name', os.getenv('PROFILE_NAME', 'Family Finance Manager')),
+        'email': get_key('profile_email', DEFAULT_ALERT_EMAIL),
+        'member_since': get_key('profile_member_since', os.getenv('PROFILE_MEMBER_SINCE', '2026-03-01'))
+    }
+    conn.close()
+    return profile
+
+
+def _save_profile(name, email, member_since=None):
+    conn = sqlite3.connect('finance.db')
+    cursor = conn.cursor()
+    # Upsert keys
+    cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('profile_name', name))
+    cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('profile_email', email))
+    if member_since:
+        cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('profile_member_since', member_since))
+    conn.commit()
+    conn.close()
 
 def load_ml_model():
     """Load trained ML model and vectorizer"""
@@ -158,20 +188,18 @@ def send_alert(email, predicted_amount, last_month_actual, difference, percentag
         trend = "📈 Increasing" if difference > 0 else "📉 Decreasing"
         
         # Email subject and body
-        subject = "⚠️ Budget Alert - Smart Family Tracker"
+        subject = "⚠️ Monthly Spend Alert - Smart Family Tracker"
         body = f"""
 Hello,
 
-Based on your spending patterns, we predict your expenses for next month will be:
+Your spending this month is higher than last month.
 
-💰 Predicted Spending: {pred_str}
-💾 Last Month Actual: {actual_str}
+💰 Current Month Spending: {pred_str}
+💾 Previous Month Spending: {actual_str}
 📊 Difference: {diff_str} ({percentage:.1f}%)
 📈 Trend: {trend}
 
-⚠️ You are likely to exceed your monthly budget. Please reduce unnecessary expenses.
-
-Stay financially smart with Smart Family Finance Tracker!
+Please review your expenses and reduce unnecessary spending if possible.
 
 Best regards,
 Smart Family Finance Tracker Team
@@ -267,6 +295,50 @@ def run_prediction_and_maybe_alert(email=None, auto=False):
     }
 
 
+def run_current_month_alert(email=None):
+    """Compare current month spending to previous month and send alert if needed."""
+    conn = sqlite3.connect('finance.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT amount, date FROM expenses ORDER BY date ASC')
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return {'error': 'No expense data available to compare'}
+
+    monthly_totals = {}
+    for amount, date_str in rows:
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+        month_key = date_obj.strftime('%Y-%m')
+        monthly_totals[month_key] = monthly_totals.get(month_key, 0) + amount
+
+    sorted_months = sorted(monthly_totals.keys())
+    current_month_key = sorted_months[-1]
+    current_month_actual = monthly_totals[current_month_key]
+    previous_month_actual = monthly_totals[sorted_months[-2]] if len(sorted_months) > 1 else 0
+
+    difference = current_month_actual - previous_month_actual
+    percentage = (difference / previous_month_actual * 100) if previous_month_actual > 0 else 0
+    trend = 'Increasing' if difference > 0 else 'Decreasing'
+    over_threshold = False if len(sorted_months) < 2 else current_month_actual > previous_month_actual
+
+    target_email = email if email else DEFAULT_ALERT_EMAIL
+    alert_sent = False
+    if over_threshold and target_email:
+        alert_sent = send_alert(target_email, current_month_actual, previous_month_actual, difference, percentage)
+
+    return {
+        'current_month_actual': current_month_actual,
+        'last_month_actual': previous_month_actual,
+        'difference': difference,
+        'percentage': percentage,
+        'trend': trend,
+        'over_threshold': over_threshold,
+        'alert_sent': alert_sent,
+        'email': target_email
+    }
+
+
 def _background_month_end_watcher():
     """Background thread that runs the prediction check on the last 5 days of each month."""
     print("🔁 Background scheduler started for month-end checks")
@@ -297,7 +369,8 @@ def _background_month_end_watcher():
 @app.route('/')
 def index():
     """Serve index.html"""
-    return render_template('index.html', ml_active=ml_active)
+    user = session.get('user')
+    return render_template('index.html', ml_active=ml_active, user=user)
 
 @app.route('/expenses', methods=['POST'])
 def add_expense():
@@ -405,20 +478,105 @@ def predict():
     """Predict next month spending and compare with budget"""
     try:
         data = request.json or {}
-        # Optional email override; default behavior compares predicted next month to last month actual
         email = data.get('email') or None
 
         res = run_prediction_and_maybe_alert(email=email)
         if 'error' in res:
             return jsonify(res), 400
 
-        # For compatibility with front-end expect `over_budget` and `buffer` keys
         res['over_budget'] = res.get('over_threshold', False)
-        # Buffer: positive means predicted is lower than last month (safe), negative means predicted exceeds last month
         res['buffer'] = res.get('last_month_actual', 0) - res.get('predicted_amount', 0)
 
         return jsonify(res), 200
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/predict_alert', methods=['GET'])
+def predict_alert():
+    """Compare current month to previous month and send alert if needed."""
+    try:
+        res = run_current_month_alert()
+        if 'error' in res:
+            return jsonify(res), 400
+        return jsonify(res), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Simple login: POST { name, email } stores user in session and persists profile."""
+    if request.method == 'GET':
+        return render_template('login.html')
+
+    try:
+        data = request.json or request.form or {}
+        name = data.get('name') or data.get('username')
+        email = data.get('email')
+        if not email:
+            return jsonify({'error': 'Email required'}), 400
+
+        # Use name fallback to localpart if not provided
+        if not name:
+            name = email.split('@')[0]
+
+        member_since = _get_saved_profile().get('member_since') or datetime.now().strftime('%Y-%m-%d')
+        session['user'] = {'name': name, 'email': email, 'member_since': member_since}
+        _save_profile(name, email, member_since)
+
+        return jsonify({'success': True, 'profile': session['user']}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.pop('user', None)
+    return jsonify({'success': True}), 200
+
+
+@app.route('/profile', methods=['GET'])
+def profile():
+    """Return a profile summary for the current session user or saved profile."""
+    user = session.get('user')
+    if user:
+        return jsonify({
+            'name': user.get('name'),
+            'email': user.get('email'),
+            'role': 'Primary Account',
+            'member_since': user.get('member_since')
+        }), 200
+
+    # fallback to saved profile
+    saved = _get_saved_profile()
+    return jsonify({
+        'name': saved.get('name'),
+        'email': saved.get('email'),
+        'role': 'Primary Account',
+        'member_since': saved.get('member_since')
+    }), 200
+
+
+@app.route('/profile_update', methods=['POST'])
+def profile_update():
+    """Update saved profile and current session."""
+    try:
+        data = request.json or {}
+        name = data.get('name')
+        email = data.get('email')
+        member_since = data.get('member_since')
+
+        if not email or not name:
+            return jsonify({'error': 'Name and email required'}), 400
+
+        _save_profile(name, email, member_since)
+        # update session if logged in
+        if session.get('user'):
+            session['user'].update({'name': name, 'email': email, 'member_since': member_since})
+
+        return jsonify({'success': True, 'profile': {'name': name, 'email': email, 'member_since': member_since}}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -339,50 +339,155 @@ function setDefaultDate() {
 // PREDICT & ALERT TAB
 // ============================================================================
 
+async function fetchPredictAlert() {
+    try {
+        const response = await fetch('/predict_alert');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch alert status');
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching predict alert:', error);
+        throw error;
+    }
+}
+
 document.getElementById('predict-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    await loadPredictAlert();
+});
 
+async function loadPredictAlert() {
     try {
-        const resp = await fetch('/run_prediction_manual', { method: 'POST' });
-        if (!resp.ok) throw new Error('Prediction failed');
-        const result = await resp.json();
+        hideError();
+        const result = await fetchPredictAlert();
 
-        // Show results
         showElement('#predict-result');
-
-        document.getElementById('predicted-next-month').textContent = formatAmount(result.predicted_amount);
-        // No manual budget; show last month as "Your Budget" slot for context
-        document.getElementById('result-budget').textContent = formatAmount(result.last_month_actual);
-        document.getElementById('result-last-month').textContent = formatAmount(result.last_month_actual);
-        document.getElementById('result-change').textContent = formatAmount(result.difference);
-        document.getElementById('result-percent').textContent = `(${result.percentage.toFixed(1)}%)`;
-        document.getElementById('trend-text').textContent = (result.trend === 'Increasing' ? '📈 Increasing' : '📉 Decreasing');
-
-        // Show alert box
+        const statusBox = document.getElementById('predict-status');
         const alertBox = document.getElementById('alert-box');
-        alertBox.classList.remove('hidden');
 
-        if (result.over_budget) {
+        document.getElementById('result-last-month').textContent = formatAmount(result.last_month_actual);
+        document.getElementById('result-current-month').textContent = formatAmount(result.current_month_actual);
+        document.getElementById('result-difference').textContent = formatAmount(result.difference);
+        document.getElementById('result-percent').textContent = `(${result.percentage.toFixed(1)}%)`;
+
+        alertBox.classList.add('hidden');
+        alertBox.innerHTML = '';
+
+        if (result.over_threshold) {
+            statusBox.className = 'result-box error';
+            statusBox.textContent = `⚠️ Alert triggered: Current month spending is higher than previous month.`;
             alertBox.className = 'alert-box warning';
-            alertBox.innerHTML = `
-                ⚠️ <strong>Budget Alert!</strong><br>
-                Predicted spending exceeds this month's actual by <strong>${formatAmount(Math.abs(result.difference))}</strong><br>
-                ${result.alert_sent ? '📧 Alert email sent!' : 'Email alert not sent.'}
-            `;
+            alertBox.innerHTML = result.alert_sent
+                ? `📧 Alert email sent to <strong>${result.email}</strong>.`
+                : `⚠️ Alert condition met, but email could not be sent. Check SMTP settings.`;
+            showElement('#alert-box');
         } else {
-            alertBox.className = 'alert-box success';
-            alertBox.innerHTML = `
-                ✅ <strong>All good!</strong><br>
-                Predicted spending is lower than this month's actual by <strong>${formatAmount(Math.abs(result.difference))}</strong>.
-            `;
-        }
+            statusBox.className = 'result-box success';
+            statusBox.textContent = `✅ No alert: Current month spending is not higher than previous month.`;
 
-        // Update prediction chart
-        updatePredictionChart(result);
+            if (result.current_month_actual === 0 && result.last_month_actual === 0) {
+                statusBox.textContent = 'ℹ️ Not enough data to compare. Add expenses for the current and previous months.';
+            }
+        }
 
     } catch (error) {
         showError('Prediction failed: ' + error.message);
     }
+}
+
+async function fetchProfile() {
+    try {
+        const response = await fetch('/profile');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch profile');
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching profile:', error);
+        throw error;
+    }
+}
+
+async function loadProfile() {
+    try {
+        hideError();
+        const profile = await fetchProfile();
+        showElement('#profile-result');
+        document.getElementById('profile-summary').textContent = 'Profile loaded successfully.';
+        document.getElementById('profile-name').textContent = profile.name || '-';
+        document.getElementById('profile-email').textContent = profile.email || '-';
+        document.getElementById('profile-role').textContent = profile.role || '-';
+        document.getElementById('profile-member-since').textContent = profile.member_since || '-';
+    } catch (error) {
+        showError('Profile load failed: ' + error.message);
+    }
+}
+
+// Logout handler
+async function logoutUser() {
+    try {
+        const resp = await fetch('/logout', { method: 'POST' });
+        if (!resp.ok) throw new Error('Logout failed');
+        window.location.reload();
+    } catch (err) {
+        showError('Logout failed: ' + err.message);
+    }
+}
+
+// Profile edit flow
+function openProfileEditor() {
+    // populate inputs
+    document.getElementById('edit-name').value = document.getElementById('profile-name').textContent || '';
+    document.getElementById('edit-email').value = document.getElementById('profile-email').textContent || '';
+    const ms = document.getElementById('profile-member-since').textContent || '';
+    document.getElementById('edit-member').value = ms;
+    showElement('#profile-edit');
+    hideElement('#profile-view');
+}
+
+function closeProfileEditor() {
+    hideElement('#profile-edit');
+    showElement('#profile-view');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    setDefaultDate();
+    hideError();
+    loadDashboard();
+
+    // Bind profile edit / logout buttons (may not exist on all pages)
+    document.getElementById('logout-btn')?.addEventListener('click', logoutUser);
+    document.getElementById('edit-profile-btn')?.addEventListener('click', () => {
+        openProfileEditor();
+    });
+    document.getElementById('cancel-edit')?.addEventListener('click', () => {
+        closeProfileEditor();
+    });
+
+    document.getElementById('profile-edit-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('edit-name').value;
+        const email = document.getElementById('edit-email').value;
+        const member_since = document.getElementById('edit-member').value;
+        try {
+            const resp = await fetch('/profile_update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email, member_since })
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'Update failed');
+            // Refresh profile view
+            await loadProfile();
+            closeProfileEditor();
+            alert('Profile updated successfully');
+        } catch (err) {
+            showError('Profile update failed: ' + err.message);
+        }
+    });
 });
 
 async function updatePredictionChart(result) {
@@ -663,6 +768,10 @@ document.querySelectorAll('.tab-button').forEach(button => {
             loadDashboard();
         } else if (tabId === 'compare') {
             loadMonthlySelects().then(loadComparison);
+        } else if (tabId === 'predict') {
+            loadPredictAlert();
+        } else if (tabId === 'profile') {
+            loadProfile();
         }
     });
 });
