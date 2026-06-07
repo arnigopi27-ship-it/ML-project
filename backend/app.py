@@ -370,7 +370,13 @@ def _background_month_end_watcher():
 def index():
     """Serve index.html"""
     user = session.get('user')
+    print(f"DEBUG: user={user}, user is None={user is None}")
     return render_template('index.html', ml_active=ml_active, user=user)
+
+@app.route('/debug-template')
+def debug_template():
+    """Debug template rendering"""
+    return render_template('index.html', ml_active=ml_active, user=None)
 
 @app.route('/expenses', methods=['POST'])
 def add_expense():

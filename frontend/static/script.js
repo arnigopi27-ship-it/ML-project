@@ -35,6 +35,52 @@ function hideError() {
 }
 
 // ============================================================================
+// LOGIN MODAL FUNCTIONS
+// ============================================================================
+
+function showLoginModal() {
+    const modal = document.getElementById('login-modal');
+    if (modal) {
+        modal.classList.add('active');
+    }
+}
+
+function hideLoginModal() {
+    const modal = document.getElementById('login-modal');
+    if (modal) {
+        modal.classList.remove('active');
+    }
+}
+
+async function handleModalLogin(e) {
+    e.preventDefault();
+    const name = document.getElementById('modal-name').value;
+    const email = document.getElementById('modal-email').value;
+    const msgBox = document.getElementById('modal-login-msg');
+    
+    try {
+        const resp = await fetch('/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Login failed');
+        
+        // Hide modal and reload page to show dashboard
+        hideLoginModal();
+        // Small delay to let modal animation finish
+        setTimeout(() => {
+            window.location.reload();
+        }, 300);
+    } catch (err) {
+        msgBox.classList.remove('hidden');
+        msgBox.className = 'result-box error';
+        msgBox.textContent = '❌ ' + err.message;
+    }
+}
+
+// ============================================================================
 // CHART INSTANCES (global to allow updates)
 // ============================================================================
 
@@ -279,53 +325,43 @@ function getCategoryEmoji(category) {
 document.getElementById('expense-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     hideError();
-    
-    const amount = parseFloat(document.getElementById('amount').value);
+
+    const amountRaw = document.getElementById('amount').value;
+    const amount = parseFloat(amountRaw);
     const date = document.getElementById('date').value;
     const description = document.getElementById('description').value;
-    const category = document.getElementById('category').value;
-    
+    let category = document.getElementById('category').value;
+
+    // Validate amount
+    if (!amountRaw || isNaN(amount) || amount <= 0) {
+        showError('Please enter a valid amount greater than 0');
+        return;
+    }
+
     try {
+        if (!category || category === 'auto') {
+            const result = await classifyExpense(description);
+            category = result.category;
+        }
+
         await addExpense({ amount, date, description, category });
-        
+
         // Reset form
         document.getElementById('expense-form').reset();
         document.getElementById('date').valueAsDate = new Date();
-        hideElement('#prediction-result');
-        
+
         // Reload dashboard
         loadDashboard();
-        
+
         alert('✅ Expense added successfully!');
     } catch (error) {
         showError('Failed to add expense: ' + error.message);
     }
 });
 
-document.getElementById('predict-btn')?.addEventListener('click', async () => {
-    hideError();
-    const description = document.getElementById('description').value;
-    
-    if (!description) {
-        showError('Please enter a description first');
-        return;
-    }
-    
-    try {
-        const result = await classifyExpense(description);
-        
-        // Show result
-        showElement('#prediction-result');
-        document.getElementById('predicted-category').textContent = result.category;
-        document.getElementById('predicted-category').className = `category-badge ${result.category}`;
-        document.getElementById('predicted-confidence').textContent = 
-            `Confidence: ${(result.confidence * 100).toFixed(1)}%`;
-        
-        // Auto-fill category
-        document.getElementById('category').value = result.category;
-    } catch (error) {
-        showError('Classification failed: ' + error.message);
-    }
+// Prevent Enter key inside description from submitting the form unintentionally
+document.getElementById('description')?.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') ev.preventDefault();
 });
 
 function setDefaultDate() {
@@ -454,6 +490,18 @@ function closeProfileEditor() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Bind modal login form
+    document.getElementById('modal-login-form')?.addEventListener('submit', handleModalLogin);
+
+    // Check if login modal is active (user not logged in)
+    const modal = document.getElementById('login-modal');
+    if (modal && modal.classList.contains('active')) {
+        // User not logged in, modal is already visible
+        console.log('User not logged in, showing login modal');
+        return; // Don't load dashboard yet
+    }
+
+    // User is logged in, proceed with dashboard
     setDefaultDate();
     hideError();
     loadDashboard();
@@ -774,14 +822,4 @@ document.querySelectorAll('.tab-button').forEach(button => {
             loadProfile();
         }
     });
-});
-
-// ============================================================================
-// INITIALIZATION
-// ============================================================================
-
-document.addEventListener('DOMContentLoaded', () => {
-    setDefaultDate();
-    hideError();
-    loadDashboard();
 });
