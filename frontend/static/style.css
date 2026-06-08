@@ -340,6 +340,29 @@ small {
     font-size: 0.85rem;
 }
 
+.prediction-indicator {
+    display: none;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    color: #0c4a6e;
+    font-size: 0.9rem;
+    border-left: 3px solid #0284c7;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 .form-actions {
     display: flex;
     gap: 12px;

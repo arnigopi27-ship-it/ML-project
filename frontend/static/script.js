@@ -364,6 +364,91 @@ document.getElementById('description')?.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') ev.preventDefault();
 });
 
+// ============================================================================
+// AUTO-PREDICT CATEGORY ON DESCRIPTION INPUT
+// ============================================================================
+
+let predictionTimeout;
+let predictionIndicator;
+
+// Create or get the prediction indicator element
+function getPredictionIndicator() {
+    let indicator = document.getElementById('prediction-indicator');
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'prediction-indicator';
+        indicator.className = 'prediction-indicator hidden';
+        indicator.style.cssText = `
+            font-size: 12px;
+            margin-top: 4px;
+            padding: 6px 8px;
+            border-radius: 4px;
+            background: #f0f9ff;
+            color: #0c4a6e;
+            display: none;
+        `;
+        const descriptionField = document.getElementById('description');
+        descriptionField.parentElement.appendChild(indicator);
+    }
+    return indicator;
+}
+
+function showPredictionIndicator(category, confidence) {
+    const indicator = getPredictionIndicator();
+    const emoji = getCategoryEmoji(category);
+    indicator.innerHTML = `🤖 Predicted: ${emoji} <strong>${category}</strong> (${(confidence * 100).toFixed(0)}% confidence)`;
+    indicator.style.display = 'block';
+}
+
+function hidePredictionIndicator() {
+    const indicator = getPredictionIndicator();
+    indicator.style.display = 'none';
+}
+
+// Listen for description input and auto-predict category
+document.getElementById('description')?.addEventListener('input', async (e) => {
+    const description = e.target.value.trim();
+    
+    // Clear previous timeout
+    if (predictionTimeout) {
+        clearTimeout(predictionTimeout);
+    }
+    
+    // Only predict if description has meaningful content (at least 3 characters)
+    if (description.length < 3) {
+        hidePredictionIndicator();
+        return;
+    }
+    
+    // Debounce the prediction call to avoid too many requests
+    predictionTimeout = setTimeout(async () => {
+        try {
+            const result = await classifyExpense(description);
+            
+            // Auto-update category dropdown only if it's still on empty or auto selection
+            const categorySelect = document.getElementById('category');
+            if (!categorySelect.value || categorySelect.value === '') {
+                categorySelect.value = result.category;
+                // Trigger change event to update any listeners
+                categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            
+            // Show prediction indicator
+            showPredictionIndicator(result.category, result.confidence);
+        } catch (error) {
+            console.error('Auto-prediction error:', error);
+            hidePredictionIndicator();
+        }
+    }, 500); // Wait 500ms after user stops typing before predicting
+});
+
+// Hide prediction indicator when category is manually selected
+document.getElementById('category')?.addEventListener('change', (e) => {
+    if (e.target.value && e.target.value !== '') {
+        hidePredictionIndicator();
+    }
+});
+
 function setDefaultDate() {
     const dateInput = document.getElementById('date');
     if (dateInput) {
