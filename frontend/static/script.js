@@ -34,6 +34,60 @@ function hideError() {
     hideElement('#error-box');
 }
 
+function showToast(message, type = 'success') {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    // Trigger reflow to start animation
+    toast.offsetHeight;
+    toast.classList.add('active');
+
+    setTimeout(() => {
+        toast.classList.remove('active');
+        setTimeout(() => {
+            toast.remove();
+        }, 300);
+    }, 3000);
+}
+
+function switchToTab(tabId) {
+    document.querySelectorAll('.tab-button').forEach(b => {
+        if (b.getAttribute('data-tab') === tabId) {
+            b.classList.add('active');
+        } else {
+            b.classList.remove('active');
+        }
+    });
+    document.querySelectorAll('.tab-content').forEach(c => {
+        if (c.id === tabId) {
+            c.classList.add('active');
+        } else {
+            c.classList.remove('active');
+        }
+    });
+    
+    // Load data for specific tabs
+    if (tabId === 'dashboard') {
+        loadDashboard();
+    } else if (tabId === 'compare') {
+        loadMonthlySelects().then(loadComparison);
+    } else if (tabId === 'predict') {
+        loadPredictAlert();
+    } else if (tabId === 'profile') {
+        loadProfile();
+    }
+}
+
+
 // ============================================================================
 // LOGIN MODAL FUNCTIONS
 // ============================================================================
@@ -322,8 +376,7 @@ function getCategoryEmoji(category) {
 // ADD EXPENSE TAB
 // ============================================================================
 
-document.getElementById('expense-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
+async function submitExpenseForm(isAuto = false) {
     hideError();
 
     const amountRaw = document.getElementById('amount').value;
@@ -334,12 +387,14 @@ document.getElementById('expense-form')?.addEventListener('submit', async (e) =>
 
     // Validate amount
     if (!amountRaw || isNaN(amount) || amount <= 0) {
-        showError('Please enter a valid amount greater than 0');
-        return;
+        if (!isAuto) {
+            showError('Please enter a valid amount greater than 0');
+        }
+        return false;
     }
 
     try {
-        if (!category || category === 'auto') {
+        if (!category || category === 'auto' || category === '') {
             const result = await classifyExpense(description);
             category = result.category;
         }
@@ -349,15 +404,25 @@ document.getElementById('expense-form')?.addEventListener('submit', async (e) =>
         // Reset form
         document.getElementById('expense-form').reset();
         document.getElementById('date').valueAsDate = new Date();
+        hidePredictionIndicator();
 
-        // Reload dashboard
-        loadDashboard();
+        // Switch to dashboard tab to show the added expense
+        switchToTab('dashboard');
 
-        alert('✅ Expense added successfully!');
+        // Show toast
+        showToast('✅ Expense added successfully!');
+        return true;
     } catch (error) {
         showError('Failed to add expense: ' + error.message);
+        return false;
     }
+}
+
+document.getElementById('expense-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await submitExpenseForm(false);
 });
+
 
 // Prevent Enter key inside description from submitting the form unintentionally
 document.getElementById('description')?.addEventListener('keydown', (ev) => {
@@ -427,7 +492,7 @@ document.getElementById('description')?.addEventListener('input', async (e) => {
             
             // Auto-update category dropdown only if it's still on empty or auto selection
             const categorySelect = document.getElementById('category');
-            if (!categorySelect.value || categorySelect.value === '') {
+            if (!categorySelect.value || categorySelect.value === '' || categorySelect.value === 'auto') {
                 categorySelect.value = result.category;
                 // Trigger change event to update any listeners
                 categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -435,6 +500,13 @@ document.getElementById('description')?.addEventListener('input', async (e) => {
             
             // Show prediction indicator
             showPredictionIndicator(result.category, result.confidence);
+
+            // Check if amount is valid, and if so, automatically submit the expense
+            const amountRaw = document.getElementById('amount').value;
+            const amount = parseFloat(amountRaw);
+            if (amountRaw && !isNaN(amount) && amount > 0) {
+                await submitExpenseForm(true);
+            }
         } catch (error) {
             console.error('Auto-prediction error:', error);
             hidePredictionIndicator();
@@ -887,24 +959,7 @@ function updateCompareChart(dataA, dataB, dateA, dateB) {
 
 document.querySelectorAll('.tab-button').forEach(button => {
     button.addEventListener('click', (e) => {
-        // Remove active class from all buttons and contents
-        document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        
-        // Add active class to clicked button and corresponding content
-        e.target.classList.add('active');
-        const tabId = e.target.getAttribute('data-tab');
-        document.getElementById(tabId).classList.add('active');
-        
-        // Load data for specific tabs
-        if (tabId === 'dashboard') {
-            loadDashboard();
-        } else if (tabId === 'compare') {
-            loadMonthlySelects().then(loadComparison);
-        } else if (tabId === 'predict') {
-            loadPredictAlert();
-        } else if (tabId === 'profile') {
-            loadProfile();
-        }
+        const tabId = e.currentTarget.getAttribute('data-tab');
+        switchToTab(tabId);
     });
 });
