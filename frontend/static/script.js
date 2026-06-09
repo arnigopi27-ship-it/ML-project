@@ -963,3 +963,214 @@ document.querySelectorAll('.tab-button').forEach(button => {
         switchToTab(tabId);
     });
 });
+
+// ============================================================================
+// NEW FEATURE: OCR BILL UPLOAD
+// ============================================================================
+
+document.getElementById('upload-bill-btn')?.addEventListener('click', () => {
+    document.getElementById('bill-file')?.click();
+});
+
+document.getElementById('bill-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    document.getElementById('bill-filename').textContent = file.name;
+
+    const ocrResult = document.getElementById('ocr-result');
+    ocrResult.className = 'result-box';
+    ocrResult.textContent = '⏳ Reading bill… please wait.';
+    ocrResult.classList.remove('hidden');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const response = await fetch('/upload-bill', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
+        if (data.amount && data.amount > 0) {
+            // Auto-fill the amount field
+            document.getElementById('amount').value = data.amount;
+            ocrResult.className = 'result-box success';
+            ocrResult.textContent = `✅ Amount detected: ₹${data.amount} — filled in the form above.`;
+            showToast('📸 Bill scanned! Amount auto-filled.', 'success');
+        } else {
+            ocrResult.className = 'result-box error';
+            ocrResult.textContent = `⚠️ ${data.error || 'OCR failed, enter manually'}`;
+        }
+    } catch (err) {
+        ocrResult.className = 'result-box error';
+        ocrResult.textContent = '⚠️ OCR failed, enter manually';
+    }
+
+    // Reset file input so same file can be re-selected
+    e.target.value = '';
+});
+
+// ============================================================================
+// NEW FEATURE: VOICE INPUT
+// ============================================================================
+
+(function initVoiceInput() {
+    const voiceBtn = document.getElementById('voice-btn');
+    const descInput = document.getElementById('description');
+    const voiceStatus = document.getElementById('voice-status');
+
+    if (!voiceBtn || !descInput) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+        voiceBtn.title = 'Voice input not supported in this browser';
+        voiceBtn.style.opacity = '0.4';
+        voiceBtn.style.cursor = 'not-allowed';
+        return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-IN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    let isListening = false;
+
+    voiceBtn.addEventListener('click', () => {
+        if (isListening) {
+            recognition.stop();
+            return;
+        }
+        recognition.start();
+    });
+
+    recognition.addEventListener('start', () => {
+        isListening = true;
+        voiceBtn.textContent = '🔴';
+        voiceBtn.classList.add('listening');
+        if (voiceStatus) voiceStatus.textContent = '🎙️ Listening… speak now';
+    });
+
+    recognition.addEventListener('result', (event) => {
+        const transcript = event.results[0][0].transcript;
+        descInput.value = transcript;
+        // Trigger the input event so auto-prediction fires
+        descInput.dispatchEvent(new Event('input', { bubbles: true }));
+        if (voiceStatus) voiceStatus.textContent = `✅ Heard: "${transcript}"`;
+    });
+
+    recognition.addEventListener('end', () => {
+        isListening = false;
+        voiceBtn.textContent = '🎤';
+        voiceBtn.classList.remove('listening');
+        setTimeout(() => {
+            if (voiceStatus) voiceStatus.textContent = '';
+        }, 3000);
+    });
+
+    recognition.addEventListener('error', (event) => {
+        isListening = false;
+        voiceBtn.textContent = '🎤';
+        voiceBtn.classList.remove('listening');
+        if (voiceStatus) voiceStatus.textContent = '⚠️ Voice input failed — type manually.';
+        setTimeout(() => {
+            if (voiceStatus) voiceStatus.textContent = '';
+        }, 3000);
+    });
+})();
+
+// ============================================================================
+// NEW FEATURE: SMART INSIGHTS
+// ============================================================================
+
+async function loadInsights() {
+    const el = document.getElementById('insights-message');
+    if (!el) return;
+
+    try {
+        const response = await fetch('/insights');
+        const data = await response.json();
+
+        if (data.error) {
+            el.textContent = '⚠️ Could not load insights.';
+            return;
+        }
+
+        const msg = data.message || 'Not enough data';
+        const isIncrease = data.direction === 'increased';
+        el.innerHTML = `
+            <span class="insight-trend ${isIncrease ? 'up' : 'down'}">
+                ${isIncrease ? '📈' : '📉'} ${msg}
+            </span>
+        `;
+    } catch (err) {
+        if (el) el.textContent = 'Not enough data';
+    }
+}
+
+// ============================================================================
+// NEW FEATURE: CATEGORY LIMIT ALERTS
+// ============================================================================
+
+async function loadCategoryAlerts() {
+    const el = document.getElementById('category-alerts-list');
+    if (!el) return;
+
+    try {
+        const response = await fetch('/category-alerts');
+        const data = await response.json();
+
+        if (data.error) {
+            el.textContent = '⚠️ Could not load alerts.';
+            return;
+        }
+
+        const alerts = data.alerts || [];
+
+        if (alerts.length === 0) {
+            el.innerHTML = '<span class="no-alerts">✅ All categories within limits</span>';
+        } else {
+            el.innerHTML = alerts.map(a =>
+                `<div class="category-alert-item">🚨 ${a}</div>`
+            ).join('');
+        }
+
+        // Also show limits summary
+        const limits = data.limits || {};
+        const totals = data.totals || {};
+        const summary = Object.entries(limits).map(([cat, limit]) => {
+            const spent = totals[cat] || 0;
+            const pct = Math.min(100, Math.round((spent / limit) * 100));
+            const over = spent > limit;
+            return `
+                <div class="limit-bar-row">
+                    <span class="limit-bar-label">${cat}: ₹${Math.round(spent).toLocaleString('en-IN')} / ₹${limit.toLocaleString('en-IN')}</span>
+                    <div class="limit-bar-track">
+                        <div class="limit-bar-fill ${over ? 'exceeded' : ''}" style="width:${pct}%"></div>
+                    </div>
+                </div>`;
+        }).join('');
+
+        el.innerHTML = (alerts.length === 0
+            ? '<span class="no-alerts">✅ All categories within limits</span><br>'
+            : alerts.map(a => `<div class="category-alert-item">🚨 ${a}</div>`).join('')
+        ) + summary;
+
+    } catch (err) {
+        if (el) el.textContent = '⚠️ Could not load category alerts.';
+    }
+}
+
+// ============================================================================
+// PATCH: extend loadDashboard to call new features
+// ============================================================================
+
+const _originalLoadDashboard = loadDashboard;
+async function loadDashboard() {
+    await _originalLoadDashboard();
+    loadInsights();
+    loadCategoryAlerts();
+}
