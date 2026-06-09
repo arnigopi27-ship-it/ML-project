@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 import pickle
 import json
@@ -14,6 +15,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
+import requests as http_requests
 
 # Load environment variables
 load_dotenv()
@@ -291,6 +293,10 @@ def run_prediction_and_maybe_alert(email=None, auto=False):
         'trend': trend,
         'over_threshold': over_threshold,
         'alert_sent': alert_sent,
+        'alert_message': (
+            'Alert email sent successfully.' if alert_sent
+            else ('Email failed but alert triggered' if over_threshold else 'No alert needed')
+        ),
         'ml_active': ml_active
     }
 
@@ -493,6 +499,13 @@ def predict():
         res['over_budget'] = res.get('over_threshold', False)
         res['buffer'] = res.get('last_month_actual', 0) - res.get('predicted_amount', 0)
 
+        # ── NEW: enhanced prediction fields ──────────────────────────────
+        # difference and percentage are already in res from run_prediction_and_maybe_alert
+        # Add trend label and simple fallback flag
+        if 'trend' not in res:
+            res['trend'] = 'Increasing' if res.get('difference', 0) > 0 else 'Decreasing'
+        res['trend_direction'] = '📈 Increasing' if res.get('difference', 0) > 0 else '📉 Decreasing'
+
         return jsonify(res), 200
         
     except Exception as e:
@@ -607,6 +620,204 @@ def api_status():
         'ml_active': ml_active,
         'lr_active': True
     }), 200
+
+# ============================================================================
+# NEW FEATURE: OCR BILL UPLOAD
+# ============================================================================
+
+@app.route('/upload-bill', methods=['POST'])
+def upload_bill():
+    """Accept an image, send to OCR.space, extract amount, delete image immediately.
+    Returns: { "amount": <float> } or { "error": "OCR failed, enter manually" }
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+
+    file = request.files['file']
+    if not file or file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    # Save temp file
+    temp_path = 'temp_bill.jpg'
+    try:
+        file.save(temp_path)
+
+        ocr_api_key = os.getenv('OCR_API_KEY', '')
+        if not ocr_api_key:
+            return jsonify({'error': 'OCR API key not configured'}), 500
+
+        # Call OCR.space API
+        with open(temp_path, 'rb') as img_file:
+            response = http_requests.post(
+                'https://api.ocr.space/parse/image',
+                files={'filename': img_file},
+                data={
+                    'apikey': ocr_api_key,
+                    'language': 'eng',
+                    'isOverlayRequired': False,
+                    'detectOrientation': True,
+                    'scale': True,
+                    'OCREngine': 2
+                },
+                timeout=30
+            )
+
+        result = response.json()
+        parsed_text = ''
+        if result.get('ParsedResults'):
+            parsed_text = result['ParsedResults'][0].get('ParsedText', '')
+
+        # Extract amount using regex — match common bill amount patterns
+        # Looks for: Total, Amount, Rs, ₹, INR followed by a number
+        amount = 0.0
+        patterns = [
+            r'(?:total|amount|grand\s*total|net\s*amount|bill\s*amount|payable)[^\d]*(\d[\d,]*\.?\d*)',
+            r'(?:rs\.?|₹|inr)\s*(\d[\d,]*\.?\d*)',
+            r'(\d[\d,]*\.\d{2})',   # any decimal number like 1,234.56
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, parsed_text, re.IGNORECASE)
+            if match:
+                raw = match.group(1).replace(',', '')
+                try:
+                    amount = float(raw)
+                    break
+                except ValueError:
+                    continue
+
+        if amount <= 0:
+            return jsonify({'error': 'OCR failed, enter manually'}), 200
+
+        return jsonify({'amount': round(amount, 2)}), 200
+
+    except Exception as e:
+        print(f"❌ OCR upload error: {e}")
+        return jsonify({'error': 'OCR failed, enter manually'}), 200
+
+    finally:
+        # SECURITY: always delete the temp image
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+# ============================================================================
+# NEW FEATURE: SMART INSIGHTS
+# ============================================================================
+
+@app.route('/insights', methods=['GET'])
+def insights():
+    """Compare current month vs previous month and return a human-readable message.
+    Returns: { "message": "Spending increased by 40%" } or { "message": "Not enough data" }
+    """
+    try:
+        conn = sqlite3.connect('finance.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT amount, date FROM expenses ORDER BY date ASC')
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return jsonify({'message': 'Not enough data'}), 200
+
+        # Group by month
+        monthly_totals = {}
+        for amount, date_str in rows:
+            month_key = datetime.strptime(date_str, '%Y-%m-%d').strftime('%Y-%m')
+            monthly_totals[month_key] = monthly_totals.get(month_key, 0) + amount
+
+        sorted_months = sorted(monthly_totals.keys())
+
+        if len(sorted_months) < 2:
+            return jsonify({'message': 'Not enough data'}), 200
+
+        current = monthly_totals[sorted_months[-1]]
+        previous = monthly_totals[sorted_months[-2]]
+
+        if previous == 0:
+            return jsonify({'message': 'Not enough data'}), 200
+
+        difference = current - previous
+        percentage = abs(difference / previous * 100)
+        direction = 'increased' if difference > 0 else 'decreased'
+
+        current_label = datetime.strptime(sorted_months[-1] + '-01', '%Y-%m-%d').strftime('%B %Y')
+        previous_label = datetime.strptime(sorted_months[-2] + '-01', '%Y-%m-%d').strftime('%B %Y')
+
+        message = (
+            f"Spending {direction} by {percentage:.1f}% "
+            f"({current_label}: ₹{int(current):,} vs {previous_label}: ₹{int(previous):,})"
+        )
+
+        return jsonify({
+            'message': message,
+            'current_month': current_label,
+            'previous_month': previous_label,
+            'current_total': current,
+            'previous_total': previous,
+            'difference': difference,
+            'percentage': round(percentage, 1),
+            'direction': direction
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# NEW FEATURE: CATEGORY LIMIT ALERTS
+# ============================================================================
+
+# Hardcoded category limits (as per spec)
+CATEGORY_LIMITS = {
+    'Food': 5000,
+    'Travel': 3000,
+    'Shopping': 4000
+}
+
+@app.route('/category-alerts', methods=['GET'])
+def category_alerts():
+    """Check current month spending per category vs predefined limits.
+    Returns: { "alerts": ["Food limit exceeded", ...], "totals": {...}, "limits": {...} }
+    """
+    try:
+        conn = sqlite3.connect('finance.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT amount, category, date FROM expenses ORDER BY date ASC')
+        rows = cursor.fetchall()
+        conn.close()
+
+        # Current month key
+        current_month = datetime.now().strftime('%Y-%m')
+
+        # If no current-month data, use the latest available month
+        current_month_rows = [(a, c) for a, c, d in rows if d.startswith(current_month)]
+        if not current_month_rows:
+            # Fall back to most recent month in data
+            if rows:
+                latest = sorted(set(d[:7] for _, _, d in rows))[-1]
+                current_month_rows = [(a, c) for a, c, d in rows if d.startswith(latest)]
+
+        # Sum per category
+        category_totals = {}
+        for amount, category in current_month_rows:
+            category_totals[category] = category_totals.get(category, 0) + amount
+
+        # Build alerts
+        alerts = []
+        for cat, limit in CATEGORY_LIMITS.items():
+            total = category_totals.get(cat, 0)
+            if total > limit:
+                alerts.append(f"{cat} limit exceeded (₹{int(total):,} / ₹{int(limit):,})")
+
+        return jsonify({
+            'alerts': alerts,
+            'totals': category_totals,
+            'limits': CATEGORY_LIMITS
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     print("=" * 60)
