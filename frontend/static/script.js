@@ -1166,11 +1166,28 @@ async function loadCategoryAlerts() {
 
 // ============================================================================
 // PATCH: extend loadDashboard to call new features
+// Auto-load insights and category alerts when dashboard is shown
 // ============================================================================
 
-const _originalLoadDashboard = loadDashboard;
-async function loadDashboard() {
-    await _originalLoadDashboard();
-    loadInsights();
-    loadCategoryAlerts();
-}
+// Hook into tab button clicks directly (safe — no hoisting issue)
+document.addEventListener('DOMContentLoaded', () => {
+    // On initial load
+    const modal = document.getElementById('login-modal');
+    if (!modal || !modal.classList.contains('active')) {
+        setTimeout(() => {
+            loadInsights();
+            loadCategoryAlerts();
+        }, 200);
+    }
+
+    // On every click of the dashboard tab button
+    const dashBtn = document.querySelector('.tab-button[data-tab="dashboard"]');
+    if (dashBtn) {
+        dashBtn.addEventListener('click', () => {
+            setTimeout(() => {
+                loadInsights();
+                loadCategoryAlerts();
+            }, 100);
+        });
+    }
+});
