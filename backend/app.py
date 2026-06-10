@@ -654,14 +654,15 @@ def upload_bill():
     if not file or file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
 
-    # Save temp file
-    temp_path = 'temp_bill.jpg'
+    # Save temp file — use absolute path so it works on Render
+    temp_path = os.path.join(BASE_DIR, 'temp_bill.jpg')
     try:
         file.save(temp_path)
 
-        ocr_api_key = os.getenv('OCR_API_KEY', '')
+        ocr_api_key = os.getenv('OCR_API_KEY', '').strip()
         if not ocr_api_key:
-            return jsonify({'error': 'OCR API key not configured'}), 500
+            # Graceful fallback — don't block the user, just tell them to enter manually
+            return jsonify({'error': 'OCR failed, enter manually'}), 200
 
         # Call OCR.space API
         with open(temp_path, 'rb') as img_file:

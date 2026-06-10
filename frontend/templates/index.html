@@ -8,328 +8,446 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <!-- LOGIN MODAL (shown if not logged in) -->
-    <div id="login-modal" class="modal {% if not user %}active{% endif %}">
-        <div class="modal-content login-card">
-            <div class="modal-header">
-                <h2>Welcome to Smart Family Finance Tracker</h2>
-                <p>Sign in to manage your expenses and budgets</p>
-            </div>
-            <form id="modal-login-form">
-                <div class="form-group">
-                    <label for="modal-name">Your Name</label>
-                    <input id="modal-name" name="name" type="text" placeholder="e.g., John Doe" />
-                </div>
-                <div class="form-group">
-                    <label for="modal-email">Email Address</label>
-                    <input id="modal-email" name="email" type="email" placeholder="you@example.com" required />
-                </div>
-                <div id="modal-login-msg" class="result-box hidden" style="margin-bottom: 12px;"></div>
-                <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
-            </form>
-        </div>
-    </div>
 
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-left">
-                <h1>💰 Smart Family Finance Tracker</h1>
+<!-- ══════════════════════════════════════════════
+     LOGIN MODAL
+══════════════════════════════════════════════ -->
+<div id="login-modal" class="modal {% if not user %}active{% endif %}">
+    <div class="modal-content login-card">
+        <div class="modal-header">
+            <div style="font-size:2.2rem;margin-bottom:10px;">💰</div>
+            <h2>Smart Finance Tracker</h2>
+            <p>Sign in to manage your family expenses</p>
+        </div>
+        <form id="modal-login-form">
+            <div class="form-group">
+                <label for="modal-name">Your Name</label>
+                <input id="modal-name" name="name" type="text" placeholder="e.g. Arjun Sharma" />
             </div>
-            <div class="header-right">
+            <div class="form-group">
+                <label for="modal-email">Email Address</label>
+                <input id="modal-email" name="email" type="email" placeholder="you@example.com" required />
+            </div>
+            <div id="modal-login-msg" class="result-box hidden" style="margin-bottom:12px;"></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;margin-top:4px;">Sign In →</button>
+        </form>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     APP SHELL
+══════════════════════════════════════════════ -->
+<div class="app-shell">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <div class="sidebar-brand-icon">💰</div>
+            <div>
+                <div class="sidebar-brand-name">Family Finance</div>
+                <div class="sidebar-brand-sub">Smart Tracker</div>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <button class="sidebar-link active" data-tab="dashboard">
+                <span class="sidebar-link-icon">📊</span> Dashboard
+            </button>
+            <button class="sidebar-link" data-tab="add">
+                <span class="sidebar-link-icon">➕</span> Add Expense
+            </button>
+            <button class="sidebar-link" data-tab="predict">
+                <span class="sidebar-link-icon">🔮</span> Predict &amp; Alert
+            </button>
+            <button class="sidebar-link" data-tab="compare">
+                <span class="sidebar-link-icon">⚖️</span> Compare Months
+            </button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="sidebar-link" data-tab="profile">
+                <span class="sidebar-link-icon">👤</span> Profile
+            </button>
+            {% if user %}
+            <button class="sidebar-link" id="logout-btn">
+                <span class="sidebar-link-icon">🚪</span> Logout
+            </button>
+            {% endif %}
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+
+        <!-- TOP BAR -->
+        <div class="topbar">
+            <div>
+                <button class="hamburger" id="hamburger" aria-label="Menu">
+                    <span></span><span></span><span></span>
+                </button>
+            </div>
+            <div class="topbar-right">
                 {% if user %}
-                <div class="status-badges">
-                    <div class="badge badge-blue">Hello, {{ user.name }}</div>
-                    <button id="logout-btn" class="badge badge-green">Logout</button>
+                <div class="user-pill">
+                    <div class="user-avatar" id="user-avatar-initials">
+                        {{ user.name[0]|upper if user.name else 'U' }}
+                    </div>
+                    <span class="user-pill-name">{{ user.name }}</span>
                 </div>
                 {% else %}
-                <div class="status-badges">
-                    <a href="/login" class="badge badge-blue">Login</a>
-                </div>
+                <button class="btn btn-primary" style="flex:none;padding:9px 18px;" onclick="document.getElementById('login-modal').classList.add('active')">Sign In</button>
                 {% endif %}
             </div>
-        </header>
+        </div>
 
+        <!-- Global error banner -->
         <div id="error-box" class="result-box error hidden"></div>
 
-        <!-- Tab Navigation -->
-        <div class="tab-navigation">
-            <button class="tab-button active" data-tab="dashboard">📊 Dashboard</button>
-            <button class="tab-button" data-tab="add">➕ Add Expense</button>
-            <button class="tab-button" data-tab="predict">� Predict & Alert</button>
-            <button class="tab-button" data-tab="profile">👤 Profile</button>
-            <button class="tab-button" data-tab="compare">⚖️ Compare Months</button>
-        </div>
-
-        <!-- TAB 1: DASHBOARD -->
+        <!-- ══ TAB 1: DASHBOARD ══ -->
         <div class="tab-content active" id="dashboard">
-            <div class="tab-grid">
-                <!-- Metrics Cards -->
-                <div class="metrics-row">
-                    <div class="metric-card">
-                        <div class="metric-label">This Month Total</div>
-                        <div class="metric-value" id="this-month">₹0</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Last Month Total</div>
-                        <div class="metric-value" id="last-month">₹0</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Month-over-Month Change</div>
-                        <div class="metric-value" id="mom-change">₹0</div>
-                        <div class="metric-percent" id="mom-percent">(0%)</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Total Expense Count</div>
-                        <div class="metric-value" id="expense-count">0</div>
-                    </div>
-                </div>
 
-                <!-- NEW: Insights & Category Alerts Row -->
-                <div class="insights-alerts-row">
-                    <!-- Smart Insights Card -->
-                    <div class="insight-card" id="insights-card">
-                        <div class="insight-card-header">
-                            <span class="insight-icon">🧠</span>
-                            <h3>Smart Insights</h3>
+            <!-- HERO BALANCE CARD -->
+            <div class="balance-hero">
+                <div class="balance-hero-label">Total Spent This Month</div>
+                <div class="balance-hero-amount">
+                    <span class="balance-hero-currency">₹</span><span id="hero-this-month">0</span>
+                </div>
+                <div class="balance-hero-sub" id="hero-date-range">Loading…</div>
+                <div class="balance-hero-stats">
+                    <div class="balance-stat">
+                        <div class="balance-stat-label">Last Month</div>
+                        <div class="balance-stat-value" id="hero-last-month">₹0</div>
+                    </div>
+                    <div class="balance-stat">
+                        <div class="balance-stat-label">Change</div>
+                        <div class="balance-stat-value">
+                            <span class="balance-stat-badge" id="hero-change-badge">0%</span>
                         </div>
-                        <div id="insights-message" class="insight-message">Loading insights…</div>
                     </div>
-
-                    <!-- Category Alerts Card -->
-                    <div class="insight-card" id="category-alerts-card">
-                        <div class="insight-card-header">
-                            <span class="insight-icon">🚨</span>
-                            <h3>Category Limit Alerts</h3>
-                        </div>
-                        <div id="category-alerts-list" class="category-alerts-list">Loading…</div>
+                    <div class="balance-stat">
+                        <div class="balance-stat-label">Transactions</div>
+                        <div class="balance-stat-value" id="hero-count">0</div>
                     </div>
-                </div>
-
-                <!-- Charts Row -->
-                <div class="charts-row">                    <div class="chart-container">
-                        <canvas id="categoryChart"></canvas>
-                    </div>
-                </div>
-
-                <!-- Expenses List -->
-                <div class="expenses-section">
-                    <h2>Recent Expenses</h2>
-                    <div class="expenses-list" id="expenses-list"></div>
                 </div>
             </div>
-        </div>
 
-        <!-- TAB 2: ADD EXPENSE -->
+            <!-- METRIC CARDS -->
+            <div class="metrics-row">
+                <div class="metric-card">
+                    <div class="metric-label">This Month</div>
+                    <div class="metric-value" id="this-month">₹0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Last Month</div>
+                    <div class="metric-value" id="last-month">₹0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">MoM Change</div>
+                    <div class="metric-value" id="mom-change">₹0</div>
+                    <div class="metric-percent" id="mom-percent">(0%)</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Expenses</div>
+                    <div class="metric-value" id="expense-count">0</div>
+                </div>
+            </div>
+
+            <!-- SPENDING CATEGORY STRIP -->
+            <div class="spend-strip" id="spend-strip">
+                <div class="spend-strip-title">Total Spent by Category</div>
+                <div class="spend-bar" id="spend-bar"></div>
+                <div class="spend-legend" id="spend-legend"></div>
+            </div>
+
+            <!-- INSIGHTS + ALERTS -->
+            <div class="insights-alerts-row">
+                <div class="insight-card" id="insights-card">
+                    <div class="insight-card-header">
+                        <span class="insight-icon">🧠</span>
+                        <h3>Smart Insights</h3>
+                    </div>
+                    <div id="insights-message" class="insight-message">Loading insights…</div>
+                </div>
+                <div class="insight-card" id="category-alerts-card">
+                    <div class="insight-card-header">
+                        <span class="insight-icon">🚨</span>
+                        <h3>Category Limit Alerts</h3>
+                    </div>
+                    <div id="category-alerts-list" class="category-alerts-list">Loading…</div>
+                </div>
+            </div>
+
+            <!-- CHART -->
+            <div class="charts-row">
+                <div class="chart-container">
+                    <div class="chart-title">Spending by Category</div>
+                    <canvas id="categoryChart"></canvas>
+                </div>
+            </div>
+
+            <!-- RECENT EXPENSES -->
+            <div class="expenses-section">
+                <div class="expenses-section-header">
+                    <div class="expenses-section-title">Recent Transactions</div>
+                </div>
+                <div class="expenses-list" id="expenses-list"></div>
+            </div>
+
+        </div><!-- /dashboard -->
+
+        <!-- ══ TAB 2: ADD EXPENSE ══ -->
         <div class="tab-content" id="add">
-            <div class="tab-grid">
-                <div class="form-section">
-                    <h2>Add New Expense</h2>
-                    
-                    <form id="expense-form">
-                        <div class="form-group">
-                            <label for="amount">Amount (₹)</label>
-                            <input type="number" id="amount" placeholder="Enter amount" step="0.01" required>
-                        </div>
+            <div class="form-section">
+                <h2>Add New Expense</h2>
 
-                        <div class="form-group">
-                            <label for="date">Date</label>
-                            <input type="date" id="date" required>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="description">Description</label>
-                            <div class="input-with-voice">
-                                <input type="text" id="description" placeholder="e.g., Zomato dinner delivery" required>
-                                <button type="button" id="voice-btn" class="btn-voice" title="Click to speak description">🎤</button>
-                            </div>
-                            <small id="voice-status" style="color: var(--text-secondary); margin-top: 4px;"></small>
-                            <small style="color: var(--text-secondary); margin-top: 4px;">💡 The category will be automatically predicted as you type!</small>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="category">Category</label>
-                            <select id="category" required>
-                                <option value="">Select Category</option>
-                                <option value="auto">🤖 Auto Predict (ML)</option>
-                                <option value="Food">🍔 Food</option>
-                                <option value="Travel">🚗 Travel</option>
-                                <option value="Bills">📄 Bills</option>
-                                <option value="Shopping">🛍️ Shopping</option>
-                                <option value="Entertainment">🎬 Entertainment</option>
-                                <option value="Other">❓ Other</option>
-                            </select>
-                        </div>
-
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">✅ Add Expense</button>
-                        </div>
-                    </form>
-
-                    <!-- NEW: Upload Bill Section -->
-                    <div class="upload-bill-section">
-                        <h3>📸 Upload Bill to Auto-Detect Amount</h3>
-                        <p style="color: var(--text-secondary); margin-bottom: 16px; font-size: 0.9rem;">
-                            Take a photo of your bill and we'll automatically extract the amount. The image is never stored.
-                        </p>
-                        <div class="upload-bill-controls">
-                            <input type="file" id="bill-file" accept="image/*" style="display:none;">
-                            <button type="button" id="upload-bill-btn" class="btn btn-secondary">📸 Choose Bill Image</button>
-                            <span id="bill-filename" style="color: var(--text-secondary); font-size: 0.85rem; margin-left: 10px;"></span>
-                        </div>
-                        <div id="ocr-result" class="result-box hidden" style="margin-top: 14px;"></div>
+                <form id="expense-form">
+                    <div class="form-group">
+                        <label for="amount">Amount (₹)</label>
+                        <input type="number" id="amount" placeholder="0.00" step="0.01" required>
                     </div>
+
+                    <div class="form-group">
+                        <label for="date">Date</label>
+                        <input type="date" id="date" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="description">Description</label>
+                        <div class="input-with-voice">
+                            <input type="text" id="description" placeholder="e.g. Zomato dinner delivery" required>
+                            <button type="button" id="voice-btn" class="btn-voice" title="Speak description">🎤</button>
+                        </div>
+                        <small id="voice-status"></small>
+                        <small>💡 Category is auto-predicted as you type</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="category">Category</label>
+                        <select id="category" required>
+                            <option value="">Select Category</option>
+                            <option value="auto">🤖 Auto Predict (ML)</option>
+                            <option value="Food">🍔 Food</option>
+                            <option value="Travel">🚗 Travel</option>
+                            <option value="Bills">📄 Bills</option>
+                            <option value="Shopping">🛍️ Shopping</option>
+                            <option value="Entertainment">🎬 Entertainment</option>
+                            <option value="Other">❓ Other</option>
+                        </select>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">✅ Add Expense</button>
+                    </div>
+                </form>
+
+                <!-- OCR UPLOAD -->
+                <div class="upload-bill-section">
+                    <h3>📸 Scan Bill — Auto Detect Amount</h3>
+                    <p style="font-size:.85rem;color:var(--text-secondary);margin-top:4px;">
+                        Upload a photo of your bill. We extract the amount automatically. The image is never stored.
+                    </p>
+                    <div class="upload-bill-controls">
+                        <input type="file" id="bill-file" accept="image/*" style="display:none;">
+                        <button type="button" id="upload-bill-btn" class="btn btn-secondary" style="flex:none;">📸 Choose Image</button>
+                        <span id="bill-filename" style="font-size:.82rem;color:var(--text-muted);"></span>
+                    </div>
+                    <div id="ocr-result" class="result-box hidden" style="margin-top:12px;"></div>
                 </div>
             </div>
-        </div>
+        </div><!-- /add -->
 
-        <!-- TAB 3: PREDICT & ALERT -->
+        <!-- ══ TAB 3: PREDICT & ALERT ══ -->
         <div class="tab-content" id="predict">
-            <div class="tab-grid">
-                <div class="predict-section">
-                    <h2>Automatic Alert: Current vs Previous Month</h2>
-                    <p>We compare your current month spending to last month automatically. If current spending is higher, an alert email is sent immediately.</p>
-                    <p>Alerts are sent to <strong>familyfinancialtracker@gmail.com</strong> by default.</p>
+            <div class="predict-section">
+                <h2>🔮 Predict &amp; Alert</h2>
+                <p style="color:var(--text-secondary);font-size:.9rem;margin-bottom:24px;line-height:1.6;">
+                    We compare your current month spending to last month. If it's higher, an alert email is sent automatically to
+                    <strong>familyfinancialtracker@gmail.com</strong>.
+                </p>
 
-                    <form id="predict-form">
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">🔄 Refresh Alert Status</button>
+                <form id="predict-form">
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">🔄 Refresh Alert Status</button>
+                    </div>
+                </form>
+
+                <div id="predict-result" class="predict-result hidden">
+                    <div class="result-box" id="predict-status"></div>
+                    <div class="sub-cards">
+                        <div class="sub-card">
+                            <div class="sub-label">Previous Month</div>
+                            <div class="sub-value" id="result-last-month">₹0</div>
                         </div>
-                    </form>
+                        <div class="sub-card">
+                            <div class="sub-label">Current Month</div>
+                            <div class="sub-value" id="result-current-month">₹0</div>
+                        </div>
+                        <div class="sub-card">
+                            <div class="sub-label">Difference</div>
+                            <div class="sub-value" id="result-difference">₹0</div>
+                            <div class="sub-percent" id="result-percent">(0%)</div>
+                        </div>
+                    </div>
+                    <div id="alert-box" class="alert-box hidden"></div>
+                </div>
+            </div>
+        </div><!-- /predict -->
 
-                    <div id="predict-result" class="predict-result hidden">
-                        <div class="result-box" id="predict-status"></div>
+        <!-- ══ TAB 4: PROFILE ══ -->
+        <div class="tab-content" id="profile">
+            <div class="predict-section">
+                <h2>👤 Profile</h2>
+                <p style="color:var(--text-secondary);font-size:.9rem;margin-bottom:24px;">Manage your account and alert preferences.</p>
 
+                <div id="profile-result" class="predict-result hidden">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;">
+                        <div class="result-box success" id="profile-summary" style="flex:1;margin-bottom:0;"></div>
+                        <button id="edit-profile-btn" class="btn btn-secondary" style="flex:none;">Edit</button>
+                    </div>
+
+                    <div id="profile-view">
                         <div class="sub-cards">
                             <div class="sub-card">
-                                <div class="sub-label">Previous Month Total</div>
-                                <div class="sub-value" id="result-last-month">₹0</div>
+                                <div class="sub-label">Name</div>
+                                <div class="sub-value" id="profile-name" style="font-size:1.1rem;">-</div>
                             </div>
                             <div class="sub-card">
-                                <div class="sub-label">Current Month Total</div>
-                                <div class="sub-value" id="result-current-month">₹0</div>
+                                <div class="sub-label">Email</div>
+                                <div id="profile-email" style="font-size:.88rem;font-weight:600;word-break:break-word;margin-top:6px;">-</div>
                             </div>
                             <div class="sub-card">
-                                <div class="sub-label">Difference</div>
-                                <div class="sub-value" id="result-difference">₹0</div>
-                                <div class="sub-percent" id="result-percent">(0%)</div>
+                                <div class="sub-label">Role</div>
+                                <div class="sub-value" id="profile-role" style="font-size:1rem;">-</div>
+                            </div>
+                            <div class="sub-card">
+                                <div class="sub-label">Member Since</div>
+                                <div class="sub-value" id="profile-member-since" style="font-size:1rem;">-</div>
                             </div>
                         </div>
+                    </div>
 
-                        <div id="alert-box" class="alert-box hidden"></div>
+                    <div id="profile-edit" class="prediction-result hidden" style="margin-top:20px;">
+                        <form id="profile-edit-form">
+                            <div class="form-group">
+                                <label for="edit-name">Name</label>
+                                <input id="edit-name" name="name" type="text" />
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-email">Email</label>
+                                <input id="edit-email" name="email" type="email" />
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-member">Member Since</label>
+                                <input id="edit-member" name="member_since" type="date" />
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Save Changes</button>
+                                <button type="button" id="cancel-edit" class="btn btn-secondary">Cancel</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             </div>
-        </div>
+        </div><!-- /profile -->
 
-        <!-- TAB 4: PROFILE -->
-        <div class="tab-content" id="profile">
-            <div class="tab-grid">
-                <div class="predict-section">
-                    <h2>User Profile</h2>
-                    <p>Manage your account details and alert preferences.</p>
-
-                    <div id="profile-result" class="predict-result hidden">
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
-                            <div class="result-box success" id="profile-summary" style="flex:1"></div>
-                            <div style="flex:none">
-                                <button id="edit-profile-btn" class="btn btn-secondary">Edit Profile</button>
-                            </div>
-                        </div>
-
-                        <div id="profile-view">
-                            <div class="sub-cards">
-                                <div class="sub-card">
-                                    <div class="sub-label">Name</div>
-                                    <div class="sub-value" id="profile-name">-</div>
-                                </div>
-                                <div class="sub-card">
-                                    <div class="sub-label">Email</div>
-                                    <div class="sub-value" id="profile-email">-</div>
-                                </div>
-                                <div class="sub-card">
-                                    <div class="sub-label">Role</div>
-                                    <div class="sub-value" id="profile-role">Primary Account</div>
-                                </div>
-                                <div class="sub-card">
-                                    <div class="sub-label">Member Since</div>
-                                    <div class="sub-value" id="profile-member-since">-</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="profile-edit" class="prediction-result hidden" style="margin-top:20px;">
-                            <form id="profile-edit-form">
-                                <div class="form-group">
-                                    <label for="edit-name">Name</label>
-                                    <input id="edit-name" name="name" type="text" />
-                                </div>
-                                <div class="form-group">
-                                    <label for="edit-email">Email</label>
-                                    <input id="edit-email" name="email" type="email" />
-                                </div>
-                                <div class="form-group">
-                                    <label for="edit-member">Member Since</label>
-                                    <input id="edit-member" name="member_since" type="date" />
-                                </div>
-                                <div class="form-actions">
-                                    <button type="submit" class="btn btn-primary">Save</button>
-                                    <button type="button" id="cancel-edit" class="btn btn-secondary">Cancel</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- TAB 5: MONTHLY COMPARE -->
+        <!-- ══ TAB 5: COMPARE ══ -->
         <div class="tab-content" id="compare">
-            <div class="tab-grid">
-                <div class="compare-section">
-                    <h2>Compare Two Months</h2>
+            <div class="compare-section">
+                <h2>⚖️ Compare Months</h2>
 
-                    <div class="compare-controls">
-                        <div class="form-group">
-                            <label for="month-a">Month A</label>
-                            <select id="month-a"></select>
+                <div class="compare-controls">
+                    <div class="form-group">
+                        <label for="month-a">Month A</label>
+                        <select id="month-a"></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="month-b">Month B</label>
+                        <select id="month-b"></select>
+                    </div>
+                </div>
+
+                <div id="compare-result" class="compare-result hidden">
+                    <div class="comparison-cards">
+                        <div class="comparison-card">
+                            <div class="comp-label" id="comp-a-label">Month A</div>
+                            <div class="comp-value" id="comp-a-value">₹0</div>
                         </div>
-                        <div class="form-group">
-                            <label for="month-b">Month B</label>
-                            <select id="month-b"></select>
+                        <div class="comparison-card">
+                            <div class="comp-label" id="comp-b-label">Month B</div>
+                            <div class="comp-value" id="comp-b-value">₹0</div>
                         </div>
                     </div>
 
-                    <!-- Comparison Results -->
-                    <div id="compare-result" class="compare-result hidden">
-                        <div class="comparison-cards">
-                            <div class="comparison-card">
-                                <div class="comp-label" id="comp-a-label">Month A</div>
-                                <div class="comp-value" id="comp-a-value">₹0</div>
-                            </div>
-                            <div class="comparison-card">
-                                <div class="comp-label" id="comp-b-label">Month B</div>
-                                <div class="comp-value" id="comp-b-value">₹0</div>
-                            </div>
-                        </div>
+                    <div class="difference-summary" id="difference-summary">Difference: ₹0 (0%)</div>
 
-                        <div class="difference-summary" id="difference-summary">
-                            Difference: ₹0 (0%)
-                        </div>
+                    <div class="category-comparison" id="category-comparison"></div>
 
-                        <!-- Category Comparison Bars -->
-                        <div class="category-comparison" id="category-comparison"></div>
-
-                        <!-- Chart -->
-                        <div class="chart-container" style="margin-top: 30px;">
-                            <canvas id="compareChart"></canvas>
-                        </div>
+                    <div class="chart-container" style="margin-top:20px;">
+                        <canvas id="compareChart"></canvas>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
+        </div><!-- /compare -->
 
-    <script src="/static/script.js"></script>
+    </main><!-- /main-content -->
+</div><!-- /app-shell -->
+
+<script src="/static/script.js"></script>
+<script>
+// Hamburger menu toggle for mobile
+document.getElementById('hamburger')?.addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('open');
+});
+
+// Update hero card when dashboard loads
+function updateHeroCard(expenses) {
+    const today = new Date();
+    const currentMonth = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0');
+    const lastMonthD  = new Date(today.getFullYear(), today.getMonth()-1, 1);
+    const lastMonth   = lastMonthD.getFullYear() + '-' + String(lastMonthD.getMonth()+1).padStart(2,'0');
+
+    const thisTotal = expenses.filter(e => e.date.startsWith(currentMonth)).reduce((s,e) => s+e.amount, 0);
+    const lastTotal = expenses.filter(e => e.date.startsWith(lastMonth)).reduce((s,e) => s+e.amount, 0);
+    const change    = lastTotal ? ((thisTotal - lastTotal) / lastTotal * 100) : 0;
+    const count     = expenses.filter(e => e.date.startsWith(currentMonth)).length;
+
+    document.getElementById('hero-this-month').textContent = Math.round(thisTotal).toLocaleString('en-IN');
+    document.getElementById('hero-last-month').textContent = '₹' + Math.round(lastTotal).toLocaleString('en-IN');
+    document.getElementById('hero-count').textContent = count;
+
+    const monthName = today.toLocaleDateString('en-IN', {month:'long', year:'numeric'});
+    document.getElementById('hero-date-range').textContent = monthName;
+
+    const badge = document.getElementById('hero-change-badge');
+    const sign  = change >= 0 ? '+' : '';
+    badge.textContent = sign + change.toFixed(1) + '%';
+    badge.className   = 'balance-stat-badge ' + (change >= 0 ? 'up' : 'down');
+
+    // Spending strip
+    const catTotals = {};
+    expenses.forEach(e => { catTotals[e.category] = (catTotals[e.category]||0) + e.amount; });
+    const total = Object.values(catTotals).reduce((a,b)=>a+b,0);
+    const catColors = { Food:'#f97316', Travel:'#0ea5e9', Bills:'#ef4444', Shopping:'#8b5cf6', Entertainment:'#10b981', Other:'#6b7280' };
+
+    const bar    = document.getElementById('spend-bar');
+    const legend = document.getElementById('spend-legend');
+    if (bar && total > 0) {
+        bar.innerHTML    = Object.entries(catTotals).map(([c,v]) =>
+            `<div class="spend-bar-seg" style="width:${(v/total*100).toFixed(1)}%;background:${catColors[c]||'#6b7280'};" title="${c}: ₹${Math.round(v).toLocaleString('en-IN')}"></div>`
+        ).join('');
+        legend.innerHTML = Object.entries(catTotals).map(([c,v]) =>
+            `<div class="spend-legend-item"><div class="spend-legend-dot" style="background:${catColors[c]||'#6b7280'}"></div>${c}</div>`
+        ).join('');
+    }
+}
+
+// Patch loadDashboard to also update hero + strip
+const _origLD = loadDashboard;
+async function loadDashboard() {
+    await _origLD();
+    const expenses = await fetch('/expenses').then(r=>r.json()).catch(()=>[]);
+    updateHeroCard(expenses);
+}
+</script>
 </body>
 </html>
