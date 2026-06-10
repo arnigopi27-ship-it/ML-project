@@ -24,6 +24,10 @@ app = Flask(__name__, template_folder='../frontend/templates', static_folder='..
 CORS(app)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key')
 
+# Absolute path for the database — works correctly on Render and locally
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'finance.db')
+
 # Global variables for ML model
 vectorizer = None
 classifier = None
@@ -32,7 +36,7 @@ ml_active = False
 # Database initialization
 def init_db():
     """Initialize SQLite database with schema"""
-    conn = sqlite3.connect('finance.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     # Create expenses table
@@ -69,6 +73,13 @@ def init_db():
             (1000, 'Ola Cab ride to airport', 'Travel', '2026-05-15'),
             (6500, 'Emergency hospital bill', 'Bills', '2026-05-19'),
             (500, 'PVR movie tickets', 'Entertainment', '2026-05-19'),
+            # June 2026 — current month seed data
+            (3500, 'Monthly House Rent Payment', 'Bills', '2026-06-01'),
+            (1400, 'BigBasket grocery order', 'Food', '2026-06-03'),
+            (950,  'Swiggy lunch delivery', 'Food', '2026-06-05'),
+            (1200, 'Airtel broadband bill', 'Bills', '2026-06-07'),
+            (2500, 'Myntra clothing purchase', 'Shopping', '2026-06-08'),
+            (800,  'Ola cab to office', 'Travel', '2026-06-09'),
         ]
         cursor.executemany(
             'INSERT INTO expenses (amount, description, category, date) VALUES (?, ?, ?, ?)',
@@ -82,7 +93,7 @@ def init_db():
 
 
 def _get_saved_profile():
-    conn = sqlite3.connect('finance.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     def get_key(k, default=None):
         cursor.execute('SELECT value FROM settings WHERE key = ?', (k,))
@@ -99,7 +110,7 @@ def _get_saved_profile():
 
 
 def _save_profile(name, email, member_since=None):
-    conn = sqlite3.connect('finance.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     # Upsert keys
     cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('profile_name', name))
@@ -237,7 +248,7 @@ def run_prediction_and_maybe_alert(email=None, auto=False):
     If `email` is None, uses DEFAULT_ALERT_EMAIL. Returns a result dict similar to /predict.
     """
     # Get all expenses from database
-    conn = sqlite3.connect('finance.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('SELECT amount, date FROM expenses ORDER BY date ASC')
     rows = cursor.fetchall()
@@ -303,7 +314,7 @@ def run_prediction_and_maybe_alert(email=None, auto=False):
 
 def run_current_month_alert(email=None):
     """Compare current month spending to previous month and send alert if needed."""
-    conn = sqlite3.connect('finance.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('SELECT amount, date FROM expenses ORDER BY date ASC')
     rows = cursor.fetchall()
@@ -372,6 +383,12 @@ def _background_month_end_watcher():
 # FLASK ROUTES
 # ============================================================================
 
+@app.before_request
+def ensure_db():
+    """Re-initialize DB if it was wiped (Render ephemeral filesystem)."""
+    if not os.path.exists(DB_PATH):
+        init_db()
+
 @app.route('/')
 def index():
     """Serve index.html"""
@@ -402,7 +419,7 @@ def add_expense():
             return jsonify({'error': 'Missing required fields'}), 400
         
         # Insert into database
-        conn = sqlite3.connect('finance.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
             'INSERT INTO expenses (amount, description, category, date) VALUES (?, ?, ?, ?)',
@@ -427,7 +444,7 @@ def add_expense():
 def get_expenses():
     """Get all expenses as JSON"""
     try:
-        conn = sqlite3.connect('finance.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('SELECT id, amount, description, category, date FROM expenses ORDER BY date DESC')
         rows = cursor.fetchall()
@@ -453,7 +470,7 @@ def get_expenses():
 def delete_expense(expense_id):
     """Delete expense by ID"""
     try:
-        conn = sqlite3.connect('finance.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
         conn.commit()
@@ -710,7 +727,7 @@ def insights():
     Returns: { "message": "Spending increased by 40%" } or { "message": "Not enough data" }
     """
     try:
-        conn = sqlite3.connect('finance.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('SELECT amount, date FROM expenses ORDER BY date ASC')
         rows = cursor.fetchall()
@@ -780,7 +797,7 @@ def category_alerts():
     Returns: { "alerts": ["Food limit exceeded", ...], "totals": {...}, "limits": {...} }
     """
     try:
-        conn = sqlite3.connect('finance.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('SELECT amount, category, date FROM expenses ORDER BY date ASC')
         rows = cursor.fetchall()
