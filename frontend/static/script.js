@@ -1165,31 +1165,12 @@ async function loadCategoryAlerts() {
 }
 
 // ============================================================================
-// PATCH: Load Insights & Category Alerts on dashboard
+// PATCH: extend loadDashboard to call new features
 // ============================================================================
 
-// Called from the existing DOMContentLoaded (already runs loadDashboard)
-// We hook into the same flow safely here — no function redefinition needed.
-document.addEventListener('DOMContentLoaded', () => {
-    const modal = document.getElementById('login-modal');
-    const isLoggedIn = !modal || !modal.classList.contains('active');
-
-    if (isLoggedIn) {
-        // Small delay so loadDashboard (from the earlier DOMContentLoaded) finishes first
-        setTimeout(() => {
-            loadInsights();
-            loadCategoryAlerts();
-        }, 300);
-    }
-
-    // Also hook dashboard tab button click
-    const dashBtn = document.querySelector('.tab-button[data-tab="dashboard"]');
-    if (dashBtn) {
-        dashBtn.addEventListener('click', () => {
-            setTimeout(() => {
-                loadInsights();
-                loadCategoryAlerts();
-            }, 150);
-        });
-    }
-});
+const _originalLoadDashboard = loadDashboard;
+async function loadDashboard() {
+    await _originalLoadDashboard();
+    loadInsights();
+    loadCategoryAlerts();
+}
