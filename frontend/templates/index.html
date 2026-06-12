@@ -4,27 +4,93 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Family Finance Tracker</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <meta name="description" content="Track your family finances smartly with ML predictions and budget alerts">
+    <link rel="stylesheet" href="/static/style.css?v=2">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
+<body id="app-body" data-logged-in="{{ 'true' if user else 'false' }}">
+
+    <!-- ================================================
+         LOGIN MODAL OVERLAY
+         Shows on page load if user is not logged in
+    ================================================ -->
+    <div id="login-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-logo">💰</div>
+                <h2 class="modal-title">Smart Family Finance</h2>
+                <p class="modal-subtitle">Manage your family finances smartly</p>
+            </div>
+            <!-- Auth Tabs -->
+            <div class="auth-tabs">
+                <button class="auth-tab active" id="tab-signin" onclick="switchAuthTab('signin')">Sign In</button>
+                <button class="auth-tab" id="tab-signup" onclick="switchAuthTab('signup')">Sign Up</button>
+            </div>
+            <!-- Sign In Form -->
+            <form id="login-form" class="modal-form auth-panel active" data-panel="signin" novalidate>
+                <div class="form-group">
+                    <label for="login-email">Email Address</label>
+                    <input type="email" id="login-email" placeholder="your@email.com" autocomplete="email" required>
+                </div>
+                <div id="login-error" class="login-error-msg hidden"></div>
+                <button type="submit" class="btn btn-primary modal-submit-btn">Sign In</button>
+            </form>
+            <!-- Sign Up Form -->
+            <form id="signup-form" class="modal-form auth-panel" data-panel="signup" novalidate>
+                <div class="form-group">
+                    <label for="signup-name">Full Name</label>
+                    <input type="text" id="signup-name" placeholder="e.g., Arni Kumar" autocomplete="name" required>
+                </div>
+                <div class="form-group">
+                    <label for="signup-email">Email Address</label>
+                    <input type="email" id="signup-email" placeholder="your@email.com" autocomplete="email" required>
+                </div>
+                <div id="signup-error" class="login-error-msg hidden"></div>
+                <button type="submit" class="btn btn-primary modal-submit-btn">Create Account</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================================================
+         SUCCESS POPUP OVERLAY
+         Shows for 2 seconds after expense is added
+    ================================================ -->
+    <div id="success-popup" class="success-overlay hidden">
+        <div class="success-card">
+            <div class="success-checkmark">
+                <svg viewBox="0 0 52 52" class="checkmark-svg">
+                    <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                    <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+            </div>
+            <h3 class="success-title">Expense Added!</h3>
+            <div class="success-details">
+                <div class="success-amount" id="success-amount">₹0</div>
+                <div class="success-desc" id="success-desc">-</div>
+                <div class="success-cat" id="success-cat">-</div>
+            </div>
+            <div class="success-progress-bg">
+                <div class="success-progress-fill" id="success-progress-fill"></div>
+            </div>
+            <p class="success-hint">Switching to Dashboard...</p>
+        </div>
+    </div>
+
+    <!-- ================================================
+         MAIN APP CONTAINER
+    ================================================ -->
     <div class="container">
+
         <!-- Header -->
         <header class="header">
             <div class="header-left">
                 <h1>💰 Smart Family Finance Tracker</h1>
             </div>
             <div class="header-right">
-                {% if user %}
                 <div class="status-badges">
-                    <div class="badge badge-blue">Hello, {{ user.name }}</div>
-                    <button id="logout-btn" class="badge badge-green">Logout</button>
+                    <div class="badge badge-blue" id="header-user-name">Loading...</div>
+                    <button id="header-logout-btn" class="badge badge-red" title="Logout">🚪 Logout</button>
                 </div>
-                {% else %}
-                <div class="status-badges">
-                    <a href="/login" class="badge badge-blue">Login</a>
-                </div>
-                {% endif %}
             </div>
         </header>
 
@@ -34,15 +100,18 @@
         <div class="tab-navigation">
             <button class="tab-button active" data-tab="dashboard">📊 Dashboard</button>
             <button class="tab-button" data-tab="add">➕ Add Expense</button>
-            <button class="tab-button" data-tab="predict">� Predict & Alert</button>
+            <button class="tab-button" data-tab="predict">🔮 Predict &amp; Alert</button>
             <button class="tab-button" data-tab="profile">👤 Profile</button>
             <button class="tab-button" data-tab="compare">⚖️ Compare Months</button>
         </div>
 
-        <!-- TAB 1: DASHBOARD -->
+        <!-- ================================================
+             TAB 1: DASHBOARD
+        ================================================ -->
         <div class="tab-content active" id="dashboard">
             <div class="tab-grid">
-                <!-- Metrics Cards -->
+
+                <!-- Metric Cards -->
                 <div class="metrics-row">
                     <div class="metric-card">
                         <div class="metric-label">This Month Total</div>
@@ -58,15 +127,48 @@
                         <div class="metric-percent" id="mom-percent">(0%)</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-label">Total Expense Count</div>
+                        <div class="metric-label">Total Expenses</div>
                         <div class="metric-value" id="expense-count">0</div>
                     </div>
                 </div>
 
-                <!-- Charts Row -->
-                <div class="charts-row">
-                    <div class="chart-container">
-                        <canvas id="categoryChart"></canvas>
+                <!-- Smart Insight Banner -->
+                <div class="insight-banner" id="insights-box">
+                    <span class="insight-icon">📊</span>
+                    <span id="insights-text">Loading smart insights...</span>
+                </div>
+
+                <!-- Category Budget Alerts -->
+                <div class="alerts-section">
+                    <h3 class="alerts-title">🚨 Category Budget Alerts</h3>
+                    <div id="category-alert-box" class="category-alerts-grid">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Premium Analytics Dashboard -->
+                <div class="analytics-dashboard">
+                    <!-- Left: Category Cards + Spend Pulse -->
+                    <div class="analytics-left">
+                        <div id="category-cards-list" class="category-cards-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Right: Doughnut Ring + Legend + Total -->
+                    <div class="analytics-right">
+                        <div class="ring-chart-area">
+                            <canvas id="pieChart"></canvas>
+                            <div class="ring-center-text">
+                                <div class="ring-count" id="ring-count">0</div>
+                                <div class="ring-label">TRANSACTIONS</div>
+                            </div>
+                        </div>
+                        <div class="ring-legend" id="ring-legend"></div>
+                        <div class="ring-total-row">
+                            <span class="ring-total-label">TOTAL SPENDING</span>
+                            <span class="ring-total-value" id="ring-total-value">₹0</span>
+                        </div>
                     </div>
                 </div>
 
@@ -78,71 +180,119 @@
             </div>
         </div>
 
-        <!-- TAB 2: ADD EXPENSE -->
+        <!-- ================================================
+             TAB 2: ADD EXPENSE
+        ================================================ -->
         <div class="tab-content" id="add">
             <div class="tab-grid">
-                <div class="form-section">
+                <div class="add-expense-wrapper">
                     <h2>Add New Expense</h2>
-                    
-                    <form id="expense-form">
-                        <div class="form-group">
-                            <label for="amount">Amount (₹)</label>
-                            <input type="number" id="amount" placeholder="Enter amount" step="0.01" required>
+                    <p class="section-hint">
+                        Category is <strong>automatically predicted</strong> as you type.
+                        Expense is <strong>automatically added</strong> when all fields are filled.
+                        Or use <strong>OCR / Voice</strong> for instant one-step add.
+                    </p>
+
+                    <!-- Quick Add: OCR and Voice side by side -->
+                    <div class="quick-add-row">
+
+                        <!-- OCR Card -->
+                        <div class="quick-add-card">
+                            <div class="quick-add-icon">📸</div>
+                            <div class="quick-add-title">Upload Bill Photo</div>
+                            <div class="quick-add-sub">Auto-extracts amount &amp; description from receipt image</div>
+                            <label for="bill-upload" class="btn btn-secondary quick-add-btn">
+                                📂 Choose Image
+                            </label>
+                            <input type="file" id="bill-upload" accept="image/*" style="display:none;">
+                            <div id="ocr-status" class="quick-status hidden"></div>
                         </div>
 
-                        <div class="form-group">
-                            <label for="date">Date</label>
-                            <input type="date" id="date" required>
+                        <!-- Voice Card -->
+                        <div class="quick-add-card">
+                            <div class="quick-add-icon">🎤</div>
+                            <div class="quick-add-title">Voice Input</div>
+                            <div class="quick-add-sub">Speak your expense aloud — it auto-fills and adds instantly</div>
+                            <button type="button" id="voice-btn" class="btn btn-secondary quick-add-btn">
+                                🎤 Start Speaking
+                            </button>
+                            <div id="voice-status" class="quick-status hidden"></div>
+                        </div>
+                    </div>
+
+                    <!-- Divider -->
+                    <div class="divider-row">
+                        <div class="divider-line"></div>
+                        <span class="divider-text">or fill manually</span>
+                        <div class="divider-line"></div>
+                    </div>
+
+                    <!-- Manual Form -->
+                    <form id="expense-form" autocomplete="off">
+                        <div class="form-row-two">
+                            <div class="form-group">
+                                <label for="amount">Amount (₹)</label>
+                                <input type="number" id="amount" placeholder="e.g., 500" step="0.01" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="date">Date</label>
+                                <input type="date" id="date" required>
+                            </div>
                         </div>
 
                         <div class="form-group">
                             <label for="description">Description</label>
-                            <input type="text" id="description" placeholder="e.g., Zomato dinner delivery" required>
+                            <input type="text" id="description" placeholder="e.g., Zomato biryani order" required>
                         </div>
 
+                        <!-- Hidden select used internally -->
+                        <select id="category" style="display:none;" aria-hidden="true">
+                            <option value="">Select Category</option>
+                            <option value="Food">Food</option>
+                            <option value="Travel">Travel</option>
+                            <option value="Bills">Bills</option>
+                            <option value="Shopping">Shopping</option>
+                            <option value="Entertainment">Entertainment</option>
+                            <option value="Other">Other</option>
+                        </select>
+
+                        <!-- Auto-detected category display -->
                         <div class="form-group">
-                            <label for="category">Category</label>
-                            <select id="category" required>
-                                <option value="">Select Category</option>
-                                <option value="auto">🤖 Auto Predict (ML)</option>
-                                <option value="Food">🍔 Food</option>
-                                <option value="Travel">🚗 Travel</option>
-                                <option value="Bills">📄 Bills</option>
-                                <option value="Shopping">🛍️ Shopping</option>
-                                <option value="Entertainment">🎬 Entertainment</option>
-                                <option value="Other">❓ Other</option>
-                            </select>
+                            <label>Predicted Category</label>
+                            <div class="auto-cat-display" id="auto-cat-display">
+                                <span class="auto-cat-badge" id="auto-cat-badge"></span>
+                                <span class="auto-cat-conf" id="auto-cat-conf"></span>
+                            </div>
                         </div>
 
-                        <div class="form-actions">
-                            <button type="button" class="btn btn-secondary" id="predict-btn">🔮 Predict Category</button>
-                            <button type="submit" class="btn btn-primary">✅ Add Expense</button>
+                        <!-- Auto-add countdown -->
+                        <div id="auto-add-status" class="auto-add-status hidden">
+                            <div class="auto-add-inner">
+                                <span id="auto-add-text">⏳ Auto-adding in 2 seconds...</span>
+                                <button type="button" id="cancel-auto-add" class="btn-cancel">✕ Cancel</button>
+                            </div>
+                            <div class="auto-add-track">
+                                <div class="auto-add-fill" id="auto-add-fill"></div>
+                            </div>
                         </div>
                     </form>
-
-                    <!-- Prediction Result -->
-                    <div id="prediction-result" class="prediction-result hidden">
-                        <div class="result-box success">
-                            <strong>Predicted Category:</strong>
-                            <span id="predicted-category" class="category-badge"></span>
-                            <small id="predicted-confidence">Confidence: --</small>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- TAB 3: PREDICT & ALERT -->
+        <!-- ================================================
+             TAB 3: PREDICT & ALERT
+        ================================================ -->
         <div class="tab-content" id="predict">
             <div class="tab-grid">
                 <div class="predict-section">
                     <h2>Automatic Alert: Current vs Previous Month</h2>
-                    <p>We compare your current month spending to last month automatically. If current spending is higher, an alert email is sent immediately.</p>
-                    <p>Alerts are sent to <strong>familyfinancialtracker@gmail.com</strong> by default.</p>
+                    <p>We compare your current month spending to last month. If current is higher, an alert email is sent automatically.</p>
+                    <p>Alerts sent to <strong>familyfinancialtracker@gmail.com</strong> by default.</p>
 
                     <form id="predict-form">
                         <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">🔄 Refresh Alert Status</button>
+                            <button type="submit" class="btn btn-primary">🔄 Check &amp; Refresh Alert</button>
                         </div>
                     </form>
 
@@ -151,11 +301,11 @@
 
                         <div class="sub-cards">
                             <div class="sub-card">
-                                <div class="sub-label">Previous Month Total</div>
+                                <div class="sub-label">Previous Month</div>
                                 <div class="sub-value" id="result-last-month">₹0</div>
                             </div>
                             <div class="sub-card">
-                                <div class="sub-label">Current Month Total</div>
+                                <div class="sub-label">Current Month</div>
                                 <div class="sub-value" id="result-current-month">₹0</div>
                             </div>
                             <div class="sub-card">
@@ -171,58 +321,63 @@
             </div>
         </div>
 
-        <!-- TAB 4: PROFILE -->
+        <!-- ================================================
+             TAB 4: PROFILE
+        ================================================ -->
         <div class="tab-content" id="profile">
             <div class="tab-grid">
                 <div class="predict-section">
                     <h2>User Profile</h2>
-                    <p>Manage your account details and alert preferences.</p>
+                    <p>Manage your account details and preferences.</p>
 
                     <div id="profile-result" class="predict-result hidden">
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
-                            <div class="result-box success" id="profile-summary" style="flex:1"></div>
-                            <div style="flex:none">
-                                <button id="edit-profile-btn" class="btn btn-secondary">Edit Profile</button>
+                        <div class="profile-header-row">
+                            <div class="result-box success" id="profile-summary" style="flex:1;margin-bottom:0;"></div>
+                            <div class="profile-btn-group">
+                                <button id="edit-profile-btn" class="btn btn-secondary">✏️ Edit</button>
+                                <button id="profile-logout-btn" class="btn btn-logout">🚪 Logout</button>
                             </div>
                         </div>
 
+                        <!-- Profile View -->
                         <div id="profile-view">
-                            <div class="sub-cards">
+                            <div class="sub-cards" style="margin-top:20px;">
                                 <div class="sub-card">
                                     <div class="sub-label">Name</div>
-                                    <div class="sub-value" id="profile-name">-</div>
+                                    <div class="sub-value profile-val" id="profile-name">-</div>
                                 </div>
                                 <div class="sub-card">
                                     <div class="sub-label">Email</div>
-                                    <div class="sub-value" id="profile-email">-</div>
+                                    <div class="sub-value profile-val" id="profile-email">-</div>
                                 </div>
                                 <div class="sub-card">
                                     <div class="sub-label">Role</div>
-                                    <div class="sub-value" id="profile-role">Primary Account</div>
+                                    <div class="sub-value profile-val" id="profile-role">Primary Account</div>
                                 </div>
                                 <div class="sub-card">
                                     <div class="sub-label">Member Since</div>
-                                    <div class="sub-value" id="profile-member-since">-</div>
+                                    <div class="sub-value profile-val" id="profile-member-since">-</div>
                                 </div>
                             </div>
                         </div>
 
+                        <!-- Profile Edit Form -->
                         <div id="profile-edit" class="prediction-result hidden" style="margin-top:20px;">
                             <form id="profile-edit-form">
                                 <div class="form-group">
                                     <label for="edit-name">Name</label>
-                                    <input id="edit-name" name="name" type="text" />
+                                    <input id="edit-name" name="name" type="text" placeholder="Your full name">
                                 </div>
                                 <div class="form-group">
                                     <label for="edit-email">Email</label>
-                                    <input id="edit-email" name="email" type="email" />
+                                    <input id="edit-email" name="email" type="email" placeholder="your@email.com">
                                 </div>
                                 <div class="form-group">
                                     <label for="edit-member">Member Since</label>
-                                    <input id="edit-member" name="member_since" type="date" />
+                                    <input id="edit-member" name="member_since" type="date">
                                 </div>
                                 <div class="form-actions">
-                                    <button type="submit" class="btn btn-primary">Save</button>
+                                    <button type="submit" class="btn btn-primary">💾 Save Changes</button>
                                     <button type="button" id="cancel-edit" class="btn btn-secondary">Cancel</button>
                                 </div>
                             </form>
@@ -232,7 +387,9 @@
             </div>
         </div>
 
-        <!-- TAB 5: MONTHLY COMPARE -->
+        <!-- ================================================
+             TAB 5: COMPARE MONTHS
+        ================================================ -->
         <div class="tab-content" id="compare">
             <div class="tab-grid">
                 <div class="compare-section">
@@ -249,7 +406,6 @@
                         </div>
                     </div>
 
-                    <!-- Comparison Results -->
                     <div id="compare-result" class="compare-result hidden">
                         <div class="comparison-cards">
                             <div class="comparison-card">
@@ -262,23 +418,20 @@
                             </div>
                         </div>
 
-                        <div class="difference-summary" id="difference-summary">
-                            Difference: ₹0 (0%)
-                        </div>
+                        <div class="difference-summary" id="difference-summary">Difference: ₹0 (0%)</div>
 
-                        <!-- Category Comparison Bars -->
                         <div class="category-comparison" id="category-comparison"></div>
 
-                        <!-- Chart -->
-                        <div class="chart-container" style="margin-top: 30px;">
+                        <div class="chart-container" style="margin-top:30px;">
                             <canvas id="compareChart"></canvas>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <script src="/static/script.js"></script>
+    </div><!-- /.container -->
+
+    <script src="/static/script.js?v=2"></script>
 </body>
 </html>
