@@ -4,3 +4,5 @@ scikit-learn==1.5.2
 numpy==2.4.6
 pandas==2.2.3
 python-dotenv==1.0.0
+pytesseract==0.3.10
+opencv-python==4.10.0.84

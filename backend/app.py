@@ -16,6 +16,11 @@ from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 import re
 import requests
+import cv2
+import pytesseract
+
+# Configure Tesseract path
+pytesseract.pytesseract.tesseract_cmd = r'C:\Users\Arni\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
 
 # Load environment variables
 load_dotenv()
@@ -455,236 +460,135 @@ def classify():
 
 @app.route('/upload-bill', methods=['POST'])
 def upload_bill():
-    """OCR bill upload — image is processed in memory and never stored."""
+    """Tesseract OCR to extract amount and description from bill image"""
     try:
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
+
         file = request.files['file']
         if not file or file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
 
-        ocr_api_key = os.getenv('OCR_API_KEY', 'K89037235588957')
+        file_bytes = file.read()
+        np_arr = np.frombuffer(file_bytes, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-        ocr_response = requests.post(
-            'https://api.ocr.space/parse/image',
-            files={'file': (file.filename, file.stream, file.content_type)},
-            data={
-                'apikey': ocr_api_key,
-                'language': 'eng',
-                'isOverlayRequired': False,
-                'detectOrientation': True,
-                'scale': True,
-            },
-            timeout=30
-        )
+        if img is None:
+            return jsonify({'error': 'Invalid image file'}), 400
 
-        ocr_data = ocr_response.json()
-        if ocr_data.get('IsErroredOnProcessing'):
-            err_msg = str(ocr_data.get('ErrorMessage', 'Unknown OCR error'))
-            return jsonify({'error': 'OCR failed: ' + err_msg}), 500
+        # Preprocess image
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
 
-        parsed_results = ocr_data.get('ParsedResults', [])
-        if not parsed_results:
-            return jsonify({'error': 'No text found in image. Try a clearer photo.'}), 400
-
-        full_text = parsed_results[0].get('ParsedText', '')
-        # Clean lines and filter out empty inputs
-        lines_text = [line.strip() for line in full_text.split('\n') if line.strip()]
-
-        # ════════════════════════════════════════════════════════════════════
-        # STEP 1 — Detect image type: UPI payment screenshot OR paper receipt
-        # ════════════════════════════════════════════════════════════════════
-        upi_signatures = re.compile(
-            r'\b(google\s*pay|gpay|phonepe|phone\s*pe|paytm|bhim|amazon\s*pay|'
-            r'whatsapp\s*pay|payment\s*successful|paid\s*successfully|'
-            r'upi\s*transaction|transaction\s*id|upi\s*id|rupees?\s+\w+\s+only)\b',
-            re.IGNORECASE
-        )
-        receipt_signatures = re.compile(
-            r'\b(subtotal|sub\s*total|gst|vat|cgst|sgst|igst|discount|'
-            r'grand\s*total|net\s*total|bill\s*amount|invoice|receipt|'
-            r'cashier|item|qty|quantity|mrp|rate)\b',
-            re.IGNORECASE
-        )
+        # Extract text using Tesseract
+        text = pytesseract.image_to_string(thresh)
         
-        upi_score = len(upi_signatures.findall(full_text))
-        receipt_score = len(receipt_signatures.findall(full_text))
-        is_upi = upi_score >= 1 and upi_score >= receipt_score
-
-        # ════════════════════════════════════════════════════════════════════
-        # HELPERS
-        # ════════════════════════════════════════════════════════════════════
-        def safe_float(s):
-            """Parse numeric string → float, or None if invalid / out of range."""
-            try:
-                # Remove common OCR noise symbols but keep decimals
-                clean_s = re.sub(r'[^\d.]', '', s.replace(',', ''))
-                v = float(clean_s)
-                return v if 1 <= v <= 1000000 else None
-            except Exception:
-                return None
-
-        def is_noise(val, raw=''):
-            if val is None:
-                return True
-            if val < 5:
-                return True  # tiny quantities / items
-            if 2000 <= val <= 2099:
-                return True  # validation year match
-            if len(raw.replace(',', '').replace('.', '')) > 8:
-                return True  # transaction hash fragments
-            return False
-
-        masked_text = re.sub(r'[A-Za-z0-9]{16,}', '', full_text)
-        bank_suffixes = set(re.findall(
-            r'(?:bank|a/c|acct?)\s*[-–:]\s*(\d{4})', full_text, re.IGNORECASE
-        ))
-
+        # Parse Amount and Description
         amount = 0.0
-
-        # ════════════════════════════════════════════════════════════════════
-        # STEP 2 — Extract Amount
-        # ════════════════════════════════════════════════════════════════════
-        if is_upi:
-            # ── UPI PATH ────────────────────────────────────────────────────
-            rupee_pat = re.compile(
-                r'(?:[\u20b9\u20a8]|Rs\.?|INR)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d{1,7}(?:\.\d{1,2})?)',
-                re.IGNORECASE
-            )
-            rupee_amounts = []
-            for m in rupee_pat.finditer(full_text):
-                raw = m.group(1)
-                val = safe_float(raw)
-                if val and not is_noise(val, raw) and raw.replace(',', '').split('.')[0] not in bank_suffixes:
-                    rupee_amounts.append(val)
-
-            if rupee_amounts:
-                amount = max(rupee_amounts)
-
-            if amount == 0:
-                paid_kw = re.compile(r'\b(paid|amount|payment)\b', re.IGNORECASE)
-                for line in lines_text:
-                    if paid_kw.search(line):
-                        nums = re.findall(r'(?<!\d)(\d{1,7}(?:\.\d{1,2})?)(?!\d)', line)
-                        for n in reversed(nums):
-                            val = safe_float(n)
-                            if val and not is_noise(val, n):
-                                amount = val
-                                break
-                    if amount:
-                        break
-        else:
-            # ── RECEIPT PATH (FIXED) ─────────────────────────────────────────
-            # Strict multi-layered keywords to target explicit Final Payment lines
-            final_total_kw = re.compile(
-                r'\b(grand\s*total|net\s*total|total\s*payable|net\s*payable|amount\s*payable|bill\s*amount)\b',
-                re.IGNORECASE
-            )
+        description = "Expense"
+        
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        
+        # 1. Amount Extraction Logic (Template Based)
+        amount = 0.0
+        
+        # TEMPLATE 1: Look for explicit "Total" row (handles Tesseract splitting wide lines)
+        for i, line in enumerate(lines):
+            line_clean = line.replace(',', '')
+            line_lower = line_clean.lower()
             
-            # Target standard strict totals while ignoring labels that denote subcomponents
-            plain_total_kw = re.compile(
-                r'(?<!\b(sub|gst|tax|item|cgst|sgst|discount)\s)\btotal\b(?!\s+(qty|price|rate|item))',
-                re.IGNORECASE
-            )
-
-            def get_last_number_from_line(text_line):
-                # Strip text phrases to isolate values safely
-                clean = re.sub(r'[₹₨€$£¥%]|Rs\.?|INR', '', text_line, flags=re.IGNORECASE)
-                nums = re.findall(r'(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d{1,7}(?:\.\d{1,2})?)', clean)
-                for n in reversed(nums):
-                    val = safe_float(n)
-                    if val and not is_noise(val, n):
-                        return val
-                return None
-
-            # Pass A: Look from the bottom up for structural Grand Totals
-            for line in reversed(lines_text):
-                if final_total_kw.search(line):
-                    val = get_last_number_from_line(line)
-                    if val:
-                        amount = val
-                        break
-
-            # Pass B: Scan for isolated clean Total targets
-            if amount == 0:
-                for line in reversed(lines_text):
-                    if plain_total_kw.search(line):
-                        val = get_last_number_from_line(line)
-                        if val:
-                            amount = val
-                            break
-
-            # Pass C: Fallback to evaluating remaining valid totals if keywords failed
-            if amount == 0:
-                rupee_pat = re.compile(r'(?:[\u20b9\u20a8]|Rs\.?|INR)\s*(\d{1,6}(?:\.\d{2})?)', re.IGNORECASE)
-                all_rupee = list(rupee_pat.finditer(full_text))
-                for m in reversed(all_rupee):
-                    val = safe_float(m.group(1))
-                    if val and not is_noise(val, m.group(1)):
-                        amount = val
-                        break
-
-        # ════════════════════════════════════════════════════════════════════
-        # STEP 3 — Extract Description (merchant name)
-        # ════════════════════════════════════════════════════════════════════
-        noise_line = re.compile(
-            r'^('
-            r'g\s*pay|google\s*pay|phonepe|phone\s*pe|paytm|bhim|amazon\s*pay|whatsapp\s*pay|'
-            r'payment\s*(successful|failed|pending)|paid\s*successfully|'
-            r'transaction\s*(successful|complete|id)|thank\s*you.*|'
-            r'note|from|to|date|upi|rupees?\s+\w+|only|cashier.*|'
-            r'keep\s*this.*|item\s*qty.*|item\s*price.*|'
-            r'\+?[\d\s\-]{8,}'  
-            r')$',
-            re.IGNORECASE
-        )
-
-        def is_good_description(text):
-            t = text.strip()
-            if len(t) < 2:
-                return False
-            if noise_line.match(t):
-                return False
-            if re.match(r'^[\d\s₹Rs.,/\-:]+$', t):
-                return False 
-            if re.match(r'^[A-Z0-9\-]{8,}$', t):
-                return False 
-            return True
-
-        description = ''
-
-        if is_upi:
-            for i, line in enumerate(lines_text):
-                if re.search(r'\bpaid\s+to\b|\bto\s*:', line, re.IGNORECASE):
-                    for j in range(i + 1, min(i + 4, len(lines_text))):
-                        candidate = lines_text[j].strip()
-                        if is_good_description(candidate):
-                            description = candidate[:100]
-                            break
-                if description:
+            # If the line contains "total" but not "subtotal"
+            if re.search(r'\btotal\b', line_lower) and not re.search(r'subtotal|sub total', line_lower):
+                # Grab all numbers on this line
+                nums = re.findall(r'\b\d+(?:\.\d+)?\b', line_clean)
+                if nums:
+                    amount = float(nums[-1])
                     break
+                else:
+                    # Sometimes Tesseract puts the number on the next line if there's a big gap
+                    for next_line in lines[i+1:i+3]:
+                        nums_next = re.findall(r'\b\d+(?:\.\d+)?\b', next_line.replace(',', ''))
+                        if nums_next:
+                            amount = float(nums_next[-1])
+                            break
+                    if amount != 0.0:
+                        break
+                        
+        # TEMPLATE 2: If no "Total" row exists, look for explicit Currency Symbols
+        if amount == 0.0:
+            explicit_amounts = []
+            for line in lines:
+                line_clean = line.replace(',', '')
+                curr_matches = re.findall(r'(?:₹|Rs\.?|INR)\s*(\d+(?:\.\d+)?)', line_clean, re.IGNORECASE)
+                for m in curr_matches:
+                    val = float(m)
+                    if val > 0:
+                        explicit_amounts.append(val)
+            
+            if explicit_amounts:
+                amount = float(max(explicit_amounts))
+                
+        # TEMPLATE 3: Ultimate Fallback -> Largest Decimal Number
+        # If the currency symbol was misread by OCR (very common), 
+        # we safely pick the largest number that has decimals (e.g. 250.00).
+        # This completely ignores phone numbers, zip codes, dates, etc.
+        if amount == 0.0:
+            decimal_amounts = []
+            for line in lines:
+                line_clean = line.replace(',', '')
+                dec_matches = re.findall(r'\b\d+\.\d{2}\b', line_clean)
+                for m in dec_matches:
+                    val = float(m)
+                    if val > 0:
+                        decimal_amounts.append(val)
+            
+            if decimal_amounts:
+                amount = float(max(decimal_amounts))
+            
+        # 2. Description Extraction Logic
+        paid_to_found = False
+        ignore_words = ['transaction', 'date', 'upi', 'total']
+        
+        for i, line in enumerate(lines):
+            if "paid to" in line.lower():
+                if i + 1 < len(lines):
+                    next_line = lines[i+1]
+                    # Check if next_line is not just numbers
+                    if not re.search(r'^\d+(\.\d+)?$', next_line.replace(',', '')):
+                        description = next_line
+                        paid_to_found = True
+                        break
+        
+        if not paid_to_found:
+            for line in lines:
+                line_lower = line.lower()
+                # Ignore if contains ignore words
+                if any(w in line_lower for w in ignore_words):
+                    continue
+                # Ignore if it's just numbers and punctuation
+                if re.match(r'^[\d\W_]+$', line):
+                    continue
+                # Found meaningful line
+                description = line
+                break
+                
+        description = description[:100]
 
-        if not description:
-            for line in lines_text:
-                if is_good_description(line):
-                    description = line[:100]
-                    break
+        if amount == 0.0:
+            return jsonify({'error': 'Could not read amount from bill. Try a clearer photo.'}), 400
 
-        if not description:
-            description = 'Bill from receipt'
-
-        # ── Auto-classify ────────────────────────────────────────────────────
-        category, confidence = classify_expense(description + ' ' + full_text[:300])
+        # Auto Classify
+        category, confidence = classify_expense(description)
 
         return jsonify({
-            'amount': round(amount, 2),
+            'amount': amount,
             'description': description,
             'category': category,
             'confidence': confidence,
+            'raw_text': text
         }), 200
 
-    except requests.Timeout:
-        return jsonify({'error': 'OCR service timed out. Please try again.'}), 408
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
