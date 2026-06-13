@@ -770,14 +770,19 @@ def api_status():
 # ENTRY POINT
 # ============================================================================
 
-if __name__ == '__main__':
-    print("=" * 60)
-    print("Smart Family Finance Tracker - Starting...")
-    print("=" * 60)
-    init_db()
-    load_ml_model()
+# Initialize core services automatically when imported by Gunicorn
+print("=" * 60)
+print("Smart Family Finance Tracker - Initializing core services...")
+init_db()
+load_ml_model()
+try:
     watcher = threading.Thread(target=_background_month_end_watcher, daemon=True)
     watcher.start()
+except Exception as e:
+    print(f"Watcher start failed: {e}")
+print("=" * 60)
+
+if __name__ == '__main__':
     print("\nFlask server starting at http://localhost:5000")
     print("=" * 60)
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True, use_reloader=False)
