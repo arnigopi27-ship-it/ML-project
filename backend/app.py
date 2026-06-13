@@ -19,8 +19,9 @@ import requests
 import cv2
 import pytesseract
 
-# Configure Tesseract path
-pytesseract.pytesseract.tesseract_cmd = r'C:\Users\Arni\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
+# Configure Tesseract path (Only for local Windows development)
+if os.name == 'nt':
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Users\Arni\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
 
 # Load environment variables
 load_dotenv()
